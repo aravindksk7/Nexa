@@ -76,69 +76,68 @@ export default function SearchPage() {
     queryKey: ['search', debouncedQuery, page, selectedTypes, selectedDomains],
     queryFn: async () => {
       if (!debouncedQuery) {
+        // When no query, fetch facets only so filters still show counts
+        const facetRes = await api.get<{ facets: {
+          assetTypes: Array<{ value: string; count: number }>;
+          domains: Array<{ value: string; count: number }>;
+          tags: Array<{ value: string; count: number }>;
+        } }>('/search/facets').catch(() => ({
+          facets: { assetTypes: [], domains: [], tags: [] },
+        }));
         return {
           data: [],
           total: 0,
           page: 1,
           pageSize: 20,
-          facets: { types: [], domains: [], tags: [] },
+          facets: {
+            types: facetRes.facets.assetTypes ?? [],
+            domains: facetRes.facets.domains ?? [],
+            tags: facetRes.facets.tags ?? [],
+          },
         };
       }
-      // In production: api.get(`/search?q=${debouncedQuery}&page=${page}&assetTypes=${selectedTypes.join(',')}`)
+
+      const params = new URLSearchParams({
+        q: debouncedQuery,
+        page: String(page),
+        pageSize: '20',
+      });
+      if (selectedTypes.length > 0) params.append('assetTypes', selectedTypes.join(','));
+      if (selectedDomains.length > 0) params.append('domains', selectedDomains.join(','));
+
+      // Fetch search results and facets in parallel
+      const [searchRes, facetRes] = await Promise.all([
+        api.get<{
+          data: Array<{ asset: { id: string; name: string; assetType: string; description?: string; domain?: string; tags: string[]; updatedAt: string }; score: number }>;
+          pagination: { page: number; limit: number; total: number; totalPages: number };
+        }>(`/search?${params.toString()}`),
+        api.get<{ facets: {
+          assetTypes: Array<{ value: string; count: number }>;
+          domains: Array<{ value: string; count: number }>;
+          tags: Array<{ value: string; count: number }>;
+        } }>(`/search/facets?q=${encodeURIComponent(debouncedQuery)}`).catch(() => ({
+          facets: { assetTypes: [], domains: [], tags: [] },
+        })),
+      ]);
+
       return {
-        data: [
-          {
-            id: '1',
-            name: 'customers',
-            type: 'TABLE',
-            description: 'Customer master data including contact information',
-            domain: 'Sales',
-            tags: ['pii', 'master-data'],
-            updatedAt: new Date(Date.now() - 3600000).toISOString(),
-            score: 0.95,
-          },
-          {
-            id: '2',
-            name: 'customer_orders',
-            type: 'VIEW',
-            description: 'Customer orders with product details',
-            domain: 'Sales',
-            tags: ['transactional'],
-            updatedAt: new Date(Date.now() - 7200000).toISOString(),
-            score: 0.82,
-          },
-          {
-            id: '3',
-            name: 'customer_segments',
-            type: 'TABLE',
-            description: 'Marketing customer segmentation data',
-            domain: 'Marketing',
-            tags: ['analytics'],
-            updatedAt: new Date(Date.now() - 86400000).toISOString(),
-            score: 0.75,
-          },
-        ],
-        total: 3,
-        page: 1,
-        pageSize: 20,
+        data: searchRes.data.map(item => ({
+          id: item.asset.id,
+          name: item.asset.name,
+          type: item.asset.assetType,
+          description: item.asset.description,
+          domain: item.asset.domain,
+          tags: item.asset.tags ?? [],
+          updatedAt: item.asset.updatedAt,
+          score: item.score,
+        })),
+        total: searchRes.pagination.total,
+        page: searchRes.pagination.page,
+        pageSize: searchRes.pagination.limit,
         facets: {
-          types: [
-            { value: 'TABLE', count: 45 },
-            { value: 'VIEW', count: 32 },
-            { value: 'DATASET', count: 18 },
-            { value: 'TOPIC', count: 12 },
-          ],
-          domains: [
-            { value: 'Sales', count: 28 },
-            { value: 'Marketing', count: 22 },
-            { value: 'Finance', count: 15 },
-            { value: 'Operations', count: 10 },
-          ],
-          tags: [
-            { value: 'pii', count: 35 },
-            { value: 'master-data', count: 28 },
-            { value: 'transactional', count: 45 },
-          ],
+          types: facetRes.facets.assetTypes ?? [],
+          domains: facetRes.facets.domains ?? [],
+          tags: facetRes.facets.tags ?? [],
         },
       };
     },

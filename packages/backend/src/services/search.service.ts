@@ -22,16 +22,27 @@ export interface SearchFacets {
   qualityStatuses: FacetValue[];
 }
 
+export interface SearchOptions {
+  page?: number;
+  pageSize?: number;
+  assetTypes?: string[];
+  owners?: string[];
+  tags?: string[];
+  domains?: string[];
+  sortBy?: string;
+  sortOrder?: string;
+}
+
 export class SearchService {
   /**
    * Search for assets using full-text search
    */
   async search(
     query: string,
-    filters: AssetFilters,
-    pagination: Pagination
+    options: SearchOptions = {}
   ): Promise<PaginatedResult<SearchResult>> {
-    const { page, limit } = pagination;
+    const page = Number(options.page) || 1;
+    const limit = Number(options.pageSize) || 20;
     const skip = (page - 1) * limit;
 
     // Build search conditions
@@ -51,33 +62,27 @@ export class SearchService {
     }
 
     // Apply filters
-    if (filters.assetType) {
-      searchConditions.push(`asset_type = $${paramIndex}`);
-      params.push(filters.assetType);
+    if (options.assetTypes && options.assetTypes.length > 0) {
+      searchConditions.push(`asset_type = ANY($${paramIndex}::text[])`);
+      params.push(options.assetTypes);
       paramIndex++;
     }
 
-    if (filters.ownerId) {
-      searchConditions.push(`owner_id = $${paramIndex}`);
-      params.push(filters.ownerId);
+    if (options.owners && options.owners.length > 0) {
+      searchConditions.push(`owner_id = ANY($${paramIndex}::text[])`);
+      params.push(options.owners);
       paramIndex++;
     }
 
-    if (filters.domain) {
-      searchConditions.push(`domain = $${paramIndex}`);
-      params.push(filters.domain);
+    if (options.domains && options.domains.length > 0) {
+      searchConditions.push(`domain = ANY($${paramIndex}::text[])`);
+      params.push(options.domains);
       paramIndex++;
     }
 
-    if (filters.qualityStatus) {
-      searchConditions.push(`quality_status = $${paramIndex}`);
-      params.push(filters.qualityStatus);
-      paramIndex++;
-    }
-
-    if (filters.tags && filters.tags.length > 0) {
+    if (options.tags && options.tags.length > 0) {
       searchConditions.push(`tags && $${paramIndex}::text[]`);
-      params.push(filters.tags);
+      params.push(options.tags);
       paramIndex++;
     }
 
@@ -99,8 +104,8 @@ export class SearchService {
       FROM assets
       ${whereClause}
       ORDER BY score DESC, updated_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `, `%${query}%`, ...params, limit, skip);
+      LIMIT $${paramIndex}::integer OFFSET $${paramIndex + 1}::integer
+    `, ...params, limit, skip);
 
     // Get total count
     const countResult = await prisma.$queryRawUnsafe<{ count: bigint }[]>(`
