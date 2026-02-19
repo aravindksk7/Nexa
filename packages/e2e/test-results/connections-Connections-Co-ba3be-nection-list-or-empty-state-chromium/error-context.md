@@ -1,0 +1,108 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - button "S" [ref=e5] [cursor=pointer]:
+        - generic [ref=e6]: S
+    - navigation [ref=e7]:
+      - generic [ref=e9]:
+        - heading "DataGovernance" [level=6] [ref=e11]
+        - separator [ref=e12]
+        - list [ref=e13]:
+          - listitem [ref=e14]:
+            - button "Dashboard" [ref=e15] [cursor=pointer]:
+              - img [ref=e17]
+              - generic [ref=e20]: Dashboard
+          - listitem [ref=e21]:
+            - button "Data Catalog" [ref=e22] [cursor=pointer]:
+              - img [ref=e24]
+              - generic [ref=e27]: Data Catalog
+          - listitem [ref=e28]:
+            - button "Lineage" [ref=e29] [cursor=pointer]:
+              - img [ref=e31]
+              - generic [ref=e34]: Lineage
+          - listitem [ref=e35]:
+            - button "Connections" [ref=e36] [cursor=pointer]:
+              - img [ref=e38]
+              - generic [ref=e41]: Connections
+          - listitem [ref=e42]:
+            - button "File Upload" [ref=e43] [cursor=pointer]:
+              - img [ref=e45]
+              - generic [ref=e48]: File Upload
+          - listitem [ref=e49]:
+            - button "Search" [ref=e50] [cursor=pointer]:
+              - img [ref=e52]
+              - generic [ref=e55]: Search
+        - separator [ref=e56]
+        - list [ref=e57]:
+          - listitem [ref=e58]:
+            - button "Settings" [ref=e59] [cursor=pointer]:
+              - img [ref=e61]
+              - generic [ref=e64]: Settings
+    - main [ref=e65]:
+      - generic [ref=e66]:
+        - generic [ref=e67]:
+          - heading "Data Connections" [level=4] [ref=e68]
+          - button "New Connection" [ref=e69] [cursor=pointer]:
+            - img [ref=e71]
+            - text: New Connection
+        - generic [ref=e73]:
+          - generic [ref=e76]:
+            - generic [ref=e77]:
+              - generic [ref=e78]:
+                - img [ref=e80]
+                - generic [ref=e82]:
+                  - heading "Production Database" [level=6] [ref=e83]
+                  - paragraph [ref=e84]: PostgreSQL
+              - button [ref=e85] [cursor=pointer]:
+                - img [ref=e86]
+            - generic [ref=e88]:
+              - paragraph [ref=e89]: "Host: prod-db.company.com:5432"
+              - paragraph [ref=e90]: "Database: analytics"
+            - generic [ref=e91]:
+              - generic [ref=e92]:
+                - img [ref=e93]
+                - generic [ref=e95]: CONNECTED
+              - generic [ref=e96]: Synced 1 hour ago
+          - generic [ref=e99]:
+            - generic [ref=e100]:
+              - generic [ref=e101]:
+                - img [ref=e103]
+                - generic [ref=e105]:
+                  - heading "Staging MySQL" [level=6] [ref=e106]
+                  - paragraph [ref=e107]: MySQL
+              - button [ref=e108] [cursor=pointer]:
+                - img [ref=e109]
+            - generic [ref=e111]:
+              - paragraph [ref=e112]: "Host: staging-mysql.company.com:3306"
+              - paragraph [ref=e113]: "Database: staging"
+            - generic [ref=e114]:
+              - generic [ref=e115]:
+                - img [ref=e116]
+                - generic [ref=e118]: CONNECTED
+              - generic [ref=e119]: Synced 2 hours ago
+          - generic [ref=e122]:
+            - generic [ref=e123]:
+              - generic [ref=e124]:
+                - img [ref=e126]
+                - generic [ref=e128]:
+                  - heading "Legacy SQL Server" [level=6] [ref=e129]
+                  - paragraph [ref=e130]: SQL Server
+              - button [ref=e131] [cursor=pointer]:
+                - img [ref=e132]
+            - generic [ref=e134]:
+              - paragraph [ref=e135]: "Host: legacy-sqlserver.company.com:1433"
+              - paragraph [ref=e136]: "Database: legacy_apps"
+            - generic [ref=e138]:
+              - img [ref=e139]
+              - generic [ref=e141]: ERROR
+  - generic [ref=e142]:
+    - img [ref=e144]
+    - button "Open Tanstack query devtools" [ref=e192] [cursor=pointer]:
+      - img [ref=e193]
+  - button "Open Next.js Dev Tools" [ref=e246] [cursor=pointer]:
+    - img [ref=e247]
+  - alert [ref=e250]
+```

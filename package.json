@@ -1,0 +1,49 @@
+{
+  "name": "nexa",
+  "version": "1.0.0",
+  "description": "Nexa - Open-source Data Management Platform for metadata catalog, lineage tracking, and governance",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "build": "npm run build --workspaces --if-present",
+    "build:backend": "npm run build --workspace=backend",
+    "build:frontend": "npm run build --workspace=frontend",
+    "test": "npm run test --workspaces --if-present",
+    "test:backend": "npm run test --workspace=backend",
+    "test:frontend": "npm run test --workspace=frontend",
+    "test:e2e": "npm run test --workspace=e2e",
+    "test:e2e:headed": "npm run test:headed --workspace=e2e",
+    "test:e2e:ui": "npm run test:ui --workspace=e2e",
+    "test:e2e:report": "npm run test:report --workspace=e2e",
+    "test:all": "npm run test:backend && npm run test:frontend && npm run test:e2e",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "prettier --write \"packages/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "db:migrate": "npm run db:migrate --workspace=backend",
+    "db:generate": "npm run db:generate --workspace=backend",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "prettier": "^3.2.5",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aravindksk7/Nexa"
+  },
+  "keywords": [
+    "nexa",
+    "metadata-catalog",
+    "data-lineage",
+    "data-governance"
+  ],
+  "license": "MIT"
+}

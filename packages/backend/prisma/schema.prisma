@@ -1,0 +1,545 @@
+// Prisma Schema for Nexa
+// https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================
+// User and Authentication
+// =====================
+
+model User {
+  id             String   @id @default(uuid())
+  email          String   @unique
+  username       String   @unique
+  passwordHash   String   @map("password_hash")
+  firstName      String?  @map("first_name")
+  lastName       String?  @map("last_name")
+  role           Role     @default(BUSINESS_ANALYST)
+  isActive       Boolean  @default(true) @map("is_active")
+  lastLoginAt    DateTime? @map("last_login_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  ownedAssets          Asset[]          @relation("AssetOwner")
+  createdAssets        Asset[]          @relation("AssetCreator")
+  updatedAssets        Asset[]          @relation("AssetUpdater")
+  createdSchemas       Schema[]         @relation("SchemaCreator")
+  createdQualityRules  QualityRule[]    @relation("QualityRuleCreator")
+  refreshTokens        RefreshToken[]
+  auditLogs            AuditLog[]
+  notifications        Notification[]
+  workflowApprovals    WorkflowStep[]   @relation("WorkflowApprover")
+
+  @@index([email])
+  @@index([username])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  revokedAt DateTime? @map("revoked_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+enum Role {
+  ADMIN
+  DATA_STEWARD
+  DATA_ENGINEER
+  BUSINESS_ANALYST
+}
+
+// =====================
+// Data Assets
+// =====================
+
+model Asset {
+  id               String       @id @default(uuid())
+  name             String
+  description      String?
+  assetType        AssetType    @map("asset_type")
+  ownerId          String       @map("owner_id")
+  domain           String?
+  tags             String[]     @default([])
+  customProperties Json?        @map("custom_properties")
+  qualityStatus    QualityStatus @default(UNKNOWN) @map("quality_status")
+  version          Int          @default(1)
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  createdById      String       @map("created_by_id")
+  updatedById      String       @map("updated_by_id")
+
+  // Full-text search vector (managed by trigger)
+  searchVector     Unsupported("tsvector")?  @map("search_vector")
+
+  // Relations
+  owner              User              @relation("AssetOwner", fields: [ownerId], references: [id])
+  createdBy          User              @relation("AssetCreator", fields: [createdById], references: [id])
+  updatedBy          User              @relation("AssetUpdater", fields: [updatedById], references: [id])
+  schemas            Schema[]
+  assetVersions      AssetVersion[]
+  sourceLineageEdges LineageEdge[]     @relation("LineageTarget")
+  targetLineageEdges LineageEdge[]     @relation("LineageSource")
+  qualityRules       QualityRule[]
+  qualityResults     QualityResult[]
+  sourceRelationships AssetRelationship[] @relation("RelationshipSource")
+  targetRelationships AssetRelationship[] @relation("RelationshipTarget")
+  dataProfiles       DataProfile[]
+  fileUpload         FileUpload?       @relation("FileAsset")
+  connectionAssets   ConnectionAsset[]
+
+  @@index([name])
+  @@index([assetType])
+  @@index([ownerId])
+  @@index([domain])
+  @@index([createdAt])
+  @@map("assets")
+}
+
+model AssetVersion {
+  id               String   @id @default(uuid())
+  assetId          String   @map("asset_id")
+  version          Int
+  name             String
+  description      String?
+  assetType        AssetType @map("asset_type")
+  domain           String?
+  tags             String[] @default([])
+  customProperties Json?    @map("custom_properties")
+  changedById      String   @map("changed_by_id")
+  changedAt        DateTime @default(now()) @map("changed_at")
+  changeType       ChangeType @map("change_type")
+
+  // Relations
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, version])
+  @@index([assetId])
+  @@index([changedAt])
+  @@map("asset_versions")
+}
+
+enum AssetType {
+  TABLE
+  COLUMN
+  DATABASE
+  SCHEMA
+  DATASET
+  PIPELINE
+  DASHBOARD
+  REPORT
+  FILE
+  API
+  OTHER
+}
+
+enum QualityStatus {
+  UNKNOWN
+  HEALTHY
+  WARNING
+  CRITICAL
+}
+
+enum ChangeType {
+  CREATED
+  UPDATED
+  DELETED
+  RESTORED
+}
+
+// =====================
+// Schema Management
+// =====================
+
+model Schema {
+  id               String       @id @default(uuid())
+  assetId          String       @map("asset_id")
+  version          Int
+  schemaFormat     SchemaFormat @map("schema_format")
+  schemaDefinition Json         @map("schema_definition")
+  isBreakingChange Boolean      @default(false) @map("is_breaking_change")
+  breakingDetails  Json?        @map("breaking_details")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  createdById      String       @map("created_by_id")
+
+  // Relations
+  asset     Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  createdBy User  @relation("SchemaCreator", fields: [createdById], references: [id])
+
+  @@unique([assetId, version])
+  @@index([assetId])
+  @@map("schemas")
+}
+
+enum SchemaFormat {
+  JSON_SCHEMA
+  AVRO
+  PARQUET
+  SQL
+  CUSTOM
+}
+
+// =====================
+// Data Lineage
+// =====================
+
+model LineageEdge {
+  id                  String   @id @default(uuid())
+  sourceAssetId       String   @map("source_asset_id")
+  targetAssetId       String   @map("target_asset_id")
+  transformationType  String   @map("transformation_type")
+  transformationLogic String?  @map("transformation_logic")
+  metadata            Json?
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  // Relations
+  sourceAsset Asset @relation("LineageSource", fields: [sourceAssetId], references: [id], onDelete: Cascade)
+  targetAsset Asset @relation("LineageTarget", fields: [targetAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceAssetId, targetAssetId])
+  @@index([sourceAssetId])
+  @@index([targetAssetId])
+  @@map("lineage_edges")
+}
+
+// =====================
+// Data Quality
+// =====================
+
+model QualityRule {
+  id             String       @id @default(uuid())
+  assetId        String       @map("asset_id")
+  name           String
+  description    String?
+  ruleType       RuleType     @map("rule_type")
+  ruleDefinition Json         @map("rule_definition")
+  severity       Severity
+  enabled        Boolean      @default(true)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  createdById    String       @map("created_by_id")
+
+  // Relations
+  asset        Asset          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  createdBy    User           @relation("QualityRuleCreator", fields: [createdById], references: [id])
+  results      QualityResult[]
+
+  @@index([assetId])
+  @@map("quality_rules")
+}
+
+model QualityResult {
+  id         String      @id @default(uuid())
+  ruleId     String      @map("rule_id")
+  assetId    String      @map("asset_id")
+  passed     Boolean
+  resultData Json?       @map("result_data")
+  executedAt DateTime    @default(now()) @map("executed_at")
+
+  // Relations
+  rule  QualityRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  asset Asset       @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId])
+  @@index([assetId])
+  @@index([executedAt])
+  @@map("quality_results")
+}
+
+enum RuleType {
+  COMPLETENESS
+  UNIQUENESS
+  RANGE
+  PATTERN
+  REFERENTIAL
+  CUSTOM
+}
+
+enum Severity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+// =====================
+// Asset Relationships
+// =====================
+
+model AssetRelationship {
+  id               String           @id @default(uuid())
+  sourceAssetId    String           @map("source_asset_id")
+  targetAssetId    String           @map("target_asset_id")
+  relationshipType RelationshipType @map("relationship_type")
+  metadata         Json?
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  sourceAsset Asset @relation("RelationshipSource", fields: [sourceAssetId], references: [id], onDelete: Cascade)
+  targetAsset Asset @relation("RelationshipTarget", fields: [targetAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceAssetId, targetAssetId, relationshipType])
+  @@index([sourceAssetId])
+  @@index([targetAssetId])
+  @@map("asset_relationships")
+}
+
+enum RelationshipType {
+  DERIVED_FROM
+  RELATED_TO
+  REPLACES
+  CONTAINS
+  DEPENDS_ON
+}
+
+// =====================
+// Data Connections
+// =====================
+
+model DataConnection {
+  id               String         @id @default(uuid())
+  name             String
+  description      String?
+  connectionType   ConnectionType @map("connection_type")
+  host             String
+  port             Int
+  database         String?
+  username         String?
+  encryptedPassword String?       @map("encrypted_password")
+  additionalConfig Json?          @map("additional_config")
+  isActive         Boolean        @default(true) @map("is_active")
+  lastTestedAt     DateTime?      @map("last_tested_at")
+  lastTestSuccess  Boolean?       @map("last_test_success")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  connectionAssets ConnectionAsset[]
+
+  @@index([name])
+  @@index([connectionType])
+  @@map("data_connections")
+}
+
+model ConnectionAsset {
+  id           String   @id @default(uuid())
+  connectionId String   @map("connection_id")
+  assetId      String   @map("asset_id")
+  sourcePath   String   @map("source_path") // e.g., "schema.table.column"
+  lastSyncedAt DateTime @map("last_synced_at")
+
+  // Relations
+  connection DataConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  asset      Asset          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, assetId])
+  @@index([connectionId])
+  @@index([assetId])
+  @@map("connection_assets")
+}
+
+enum ConnectionType {
+  POSTGRESQL
+  MYSQL
+  SQLSERVER
+  ORACLE
+  SNOWFLAKE
+  BIGQUERY
+  REDSHIFT
+}
+
+// =====================
+// File Uploads
+// =====================
+
+model FileUpload {
+  id           String     @id @default(uuid())
+  filename     String
+  originalName String     @map("original_name")
+  mimeType     String     @map("mime_type")
+  size         Int
+  fileType     FileType   @map("file_type")
+  encoding     String?
+  delimiter    String?
+  storagePath  String     @map("storage_path")
+  assetId      String?    @unique @map("asset_id")
+  parsedAt     DateTime?  @map("parsed_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  // Relations
+  asset Asset? @relation("FileAsset", fields: [assetId], references: [id])
+
+  @@index([filename])
+  @@map("file_uploads")
+}
+
+enum FileType {
+  CSV
+  EXCEL
+  JSON
+  PARQUET
+}
+
+// =====================
+// Data Profiling
+// =====================
+
+model DataProfile {
+  id            String   @id @default(uuid())
+  assetId       String   @map("asset_id")
+  rowCount      Int      @map("row_count")
+  columnCount   Int      @map("column_count")
+  profileData   Json     @map("profile_data")
+  profilingTime Int      @map("profiling_time") // in milliseconds
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Relations
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+  @@index([createdAt])
+  @@map("data_profiles")
+}
+
+// =====================
+// Governance Workflows
+// =====================
+
+model Workflow {
+  id          String           @id @default(uuid())
+  name        String
+  description String?
+  definition  Json
+  isActive    Boolean          @default(true) @map("is_active")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  instances WorkflowInstance[]
+
+  @@index([name])
+  @@map("workflows")
+}
+
+model WorkflowInstance {
+  id          String         @id @default(uuid())
+  workflowId  String         @map("workflow_id")
+  status      WorkflowStatus
+  currentStep Int            @default(0) @map("current_step")
+  context     Json
+  startedAt   DateTime       @default(now()) @map("started_at")
+  completedAt DateTime?      @map("completed_at")
+
+  // Relations
+  workflow Workflow       @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  steps    WorkflowStep[]
+
+  @@index([workflowId])
+  @@index([status])
+  @@map("workflow_instances")
+}
+
+model WorkflowStep {
+  id          String     @id @default(uuid())
+  instanceId  String     @map("instance_id")
+  stepNumber  Int        @map("step_number")
+  stepName    String     @map("step_name")
+  status      StepStatus
+  approverId  String?    @map("approver_id")
+  comment     String?
+  executedAt  DateTime?  @map("executed_at")
+
+  // Relations
+  instance WorkflowInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  approver User?            @relation("WorkflowApprover", fields: [approverId], references: [id])
+
+  @@index([instanceId])
+  @@map("workflow_steps")
+}
+
+enum WorkflowStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum StepStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SKIPPED
+}
+
+// =====================
+// Notifications
+// =====================
+
+model Notification {
+  id         String           @id @default(uuid())
+  userId     String           @map("user_id")
+  type       NotificationType
+  title      String
+  message    String
+  metadata   Json?
+  isRead     Boolean          @default(false) @map("is_read")
+  createdAt  DateTime         @default(now()) @map("created_at")
+  readAt     DateTime?        @map("read_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  QUALITY_ALERT
+  WORKFLOW_ACTION
+  ASSET_UPDATE
+  SYSTEM
+}
+
+// =====================
+// Audit Logging
+// =====================
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?  @map("user_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  oldValue   Json?    @map("old_value")
+  newValue   Json?    @map("new_value")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
