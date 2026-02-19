@@ -83,3 +83,19 @@ authRouter.post(
     res.json({ message: 'Password changed successfully' });
   })
 );
+
+// PUT /api/v1/auth/profile
+authRouter.put(
+  '/profile',
+  authenticate,
+  validate([
+    body('username').optional().isLength({ min: 3, max: 50 }).withMessage('Username must be 3-50 characters'),
+    body('firstName').optional().isLength({ max: 100 }).withMessage('First name must be at most 100 characters'),
+    body('lastName').optional().isLength({ max: 100 }).withMessage('Last name must be at most 100 characters'),
+  ]),
+  asyncHandler(async (req, res) => {
+    const { username, firstName, lastName } = req.body;
+    const user = await authenticationService.updateProfile(req.user!.id, { username, firstName, lastName });
+    res.json({ user });
+  })
+);

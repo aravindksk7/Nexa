@@ -84,7 +84,7 @@ async function request<T>(
   if (!response.ok) {
     throw new ApiError(
       response.status,
-      responseData.message || 'An error occurred',
+      responseData.message || responseData.error?.message || 'An error occurred',
       responseData.errors
     );
   }
@@ -136,7 +136,7 @@ export const api = {
     if (!response.ok) {
       throw new ApiError(
         response.status,
-        responseData.message || 'An error occurred',
+        responseData.message || responseData.error?.message || 'An error occurred',
         responseData.errors
       );
     }

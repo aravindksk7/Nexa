@@ -37,6 +37,8 @@ model User {
   auditLogs            AuditLog[]
   notifications        Notification[]
   workflowApprovals    WorkflowStep[]   @relation("WorkflowApprover")
+  ownedBusinessTerms   BusinessTerm[]   @relation("TermOwner")
+  createdMappings      SemanticMapping[] @relation("MappingCreator")
 
   @@index([email])
   @@index([username])
@@ -97,6 +99,9 @@ model Asset {
   assetVersions      AssetVersion[]
   sourceLineageEdges LineageEdge[]     @relation("LineageTarget")
   targetLineageEdges LineageEdge[]     @relation("LineageSource")
+  sourceColumnLineageEdges ColumnLineageEdge[] @relation("ColumnLineageSource")
+  targetColumnLineageEdges ColumnLineageEdge[] @relation("ColumnLineageTarget")
+  semanticMappings   SemanticMapping[]
   qualityRules       QualityRule[]
   qualityResults     QualityResult[]
   sourceRelationships AssetRelationship[] @relation("RelationshipSource")
@@ -212,11 +217,132 @@ model LineageEdge {
   // Relations
   sourceAsset Asset @relation("LineageSource", fields: [sourceAssetId], references: [id], onDelete: Cascade)
   targetAsset Asset @relation("LineageTarget", fields: [targetAssetId], references: [id], onDelete: Cascade)
+  columnLineageEdges ColumnLineageEdge[]
 
   @@unique([sourceAssetId, targetAssetId])
   @@index([sourceAssetId])
   @@index([targetAssetId])
   @@map("lineage_edges")
+}
+
+// =====================
+// Column-Level Lineage
+// =====================
+
+model ColumnLineageEdge {
+  id                       String                  @id @default(uuid())
+  sourceAssetId            String                  @map("source_asset_id")
+  sourceColumn             String                  @map("source_column")
+  targetAssetId            String                  @map("target_asset_id")
+  targetColumn             String                  @map("target_column")
+  transformationType       ColumnTransformationType @map("transformation_type")
+  transformationExpression String?                 @map("transformation_expression")
+  lineageEdgeId            String?                 @map("lineage_edge_id")
+  confidence               Float                   @default(1.0)
+  metadata                 Json?
+  createdAt                DateTime                @default(now()) @map("created_at")
+
+  // Relations
+  sourceAsset Asset        @relation("ColumnLineageSource", fields: [sourceAssetId], references: [id], onDelete: Cascade)
+  targetAsset Asset        @relation("ColumnLineageTarget", fields: [targetAssetId], references: [id], onDelete: Cascade)
+  lineageEdge LineageEdge? @relation(fields: [lineageEdgeId], references: [id], onDelete: SetNull)
+
+  @@unique([sourceAssetId, sourceColumn, targetAssetId, targetColumn])
+  @@index([sourceAssetId, sourceColumn])
+  @@index([targetAssetId, targetColumn])
+  @@index([lineageEdgeId])
+  @@map("column_lineage_edges")
+}
+
+enum ColumnTransformationType {
+  DIRECT       // Direct column mapping (no transformation)
+  DERIVED      // Derived from expressions (e.g., CONCAT, arithmetic)
+  AGGREGATED   // Result of aggregation (SUM, COUNT, AVG)
+  FILTERED     // Column used in WHERE/HAVING conditions
+  JOINED       // Column used in JOIN conditions
+  CASE         // Result of CASE expression
+  COALESCED    // Result of COALESCE/IFNULL
+}
+
+// =====================
+// Business Glossary
+// =====================
+
+model BusinessDomain {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  parentId    String?  @map("parent_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  parent   BusinessDomain?  @relation("DomainHierarchy", fields: [parentId], references: [id])
+  children BusinessDomain[] @relation("DomainHierarchy")
+  terms    BusinessTerm[]
+
+  @@index([parentId])
+  @@map("business_domains")
+}
+
+model BusinessTerm {
+  id          String           @id @default(uuid())
+  name        String
+  definition  String
+  domainId    String           @map("domain_id")
+  ownerId     String           @map("owner_id")
+  status      BusinessTermStatus @default(DRAFT)
+  synonyms    String[]         @default([])
+  relatedTerms String[]        @default([]) @map("related_terms")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  domain   BusinessDomain   @relation(fields: [domainId], references: [id])
+  owner    User             @relation("TermOwner", fields: [ownerId], references: [id])
+  mappings SemanticMapping[]
+
+  @@unique([name, domainId])
+  @@index([domainId])
+  @@index([ownerId])
+  @@index([status])
+  @@map("business_terms")
+}
+
+model SemanticMapping {
+  id             String      @id @default(uuid())
+  businessTermId String      @map("business_term_id")
+  assetId        String      @map("asset_id")
+  columnName     String?     @map("column_name")
+  mappingType    MappingType @map("mapping_type")
+  confidence     Float       @default(1.0)
+  description    String?
+  createdById    String      @map("created_by_id")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  businessTerm BusinessTerm @relation(fields: [businessTermId], references: [id], onDelete: Cascade)
+  asset        Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("MappingCreator", fields: [createdById], references: [id])
+
+  @@unique([businessTermId, assetId, columnName])
+  @@index([businessTermId])
+  @@index([assetId])
+  @@map("semantic_mappings")
+}
+
+enum BusinessTermStatus {
+  DRAFT
+  APPROVED
+  DEPRECATED
+}
+
+enum MappingType {
+  EXACT       // Direct 1:1 mapping
+  CONTAINS    // Asset contains the business concept
+  DERIVES     // Asset is derived from the business concept
+  RELATED     // General relationship
 }
 
 // =====================

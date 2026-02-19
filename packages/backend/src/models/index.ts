@@ -184,6 +184,189 @@ export interface ImpactedAsset {
 }
 
 // =====================
+// Column Lineage Types
+// =====================
+
+export const ColumnTransformationTypeEnum = z.enum([
+  'DIRECT',
+  'DERIVED',
+  'AGGREGATED',
+  'FILTERED',
+  'JOINED',
+  'CASE',
+  'COALESCED',
+]);
+export type ColumnTransformationType = z.infer<typeof ColumnTransformationTypeEnum>;
+
+export const ColumnLineageEdgeSchema = z.object({
+  id: z.string().uuid(),
+  sourceAssetId: z.string().uuid(),
+  sourceColumn: z.string(),
+  targetAssetId: z.string().uuid(),
+  targetColumn: z.string(),
+  transformationType: ColumnTransformationTypeEnum,
+  transformationExpression: z.string().optional(),
+  lineageEdgeId: z.string().uuid().optional(),
+  confidence: z.number().min(0).max(1).default(1.0),
+  metadata: z.record(z.any()).optional(),
+  createdAt: z.date(),
+});
+
+export type ColumnLineageEdge = z.infer<typeof ColumnLineageEdgeSchema>;
+
+export const CreateColumnLineageEdgeSchema = z.object({
+  sourceAssetId: z.string().uuid(),
+  sourceColumn: z.string().min(1),
+  targetAssetId: z.string().uuid(),
+  targetColumn: z.string().min(1),
+  transformationType: ColumnTransformationTypeEnum,
+  transformationExpression: z.string().optional(),
+  lineageEdgeId: z.string().uuid().optional(),
+  confidence: z.number().min(0).max(1).default(1.0),
+  metadata: z.record(z.any()).optional(),
+});
+
+export type CreateColumnLineageEdge = z.infer<typeof CreateColumnLineageEdgeSchema>;
+
+export interface ColumnLineageGraph {
+  nodes: ColumnLineageNode[];
+  edges: ColumnLineageGraphEdge[];
+}
+
+export interface ColumnLineageNode {
+  assetId: string;
+  assetName: string;
+  column: string;
+  assetType: AssetType;
+  depth: number;
+}
+
+export interface ColumnLineageGraphEdge {
+  sourceAssetId: string;
+  sourceColumn: string;
+  targetAssetId: string;
+  targetColumn: string;
+  transformationType: ColumnTransformationType;
+  transformationExpression?: string;
+}
+
+export interface ColumnImpactAnalysisResult {
+  sourceAsset: Pick<Asset, 'id' | 'name' | 'assetType'>;
+  sourceColumn: string;
+  impactedColumns: ImpactedColumn[];
+  totalCount: number;
+}
+
+export interface ImpactedColumn {
+  assetId: string;
+  assetName: string;
+  column: string;
+  assetType: AssetType;
+  depth: number;
+  path: string[];
+}
+
+// =====================
+// Business Glossary Types
+// =====================
+
+export const BusinessTermStatusEnum = z.enum(['DRAFT', 'APPROVED', 'DEPRECATED']);
+export type BusinessTermStatus = z.infer<typeof BusinessTermStatusEnum>;
+
+export const MappingTypeEnum = z.enum(['EXACT', 'CONTAINS', 'DERIVES', 'RELATED']);
+export type MappingType = z.infer<typeof MappingTypeEnum>;
+
+export const BusinessDomainSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  description: z.string().optional(),
+  parentId: z.string().uuid().optional(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type BusinessDomain = z.infer<typeof BusinessDomainSchema>;
+
+export const CreateBusinessDomainSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  parentId: z.string().uuid().optional(),
+});
+
+export type CreateBusinessDomain = z.infer<typeof CreateBusinessDomainSchema>;
+
+export const BusinessTermSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  definition: z.string(),
+  domainId: z.string().uuid(),
+  ownerId: z.string().uuid(),
+  status: BusinessTermStatusEnum,
+  synonyms: z.array(z.string()).default([]),
+  relatedTerms: z.array(z.string()).default([]),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type BusinessTerm = z.infer<typeof BusinessTermSchema>;
+
+export const CreateBusinessTermSchema = z.object({
+  name: z.string().min(1).max(100),
+  definition: z.string().min(1).max(2000),
+  domainId: z.string().uuid(),
+  ownerId: z.string().uuid().optional(), // Defaults to current user
+  status: BusinessTermStatusEnum.default('DRAFT'),
+  synonyms: z.array(z.string()).default([]),
+  relatedTerms: z.array(z.string()).default([]),
+});
+
+export type CreateBusinessTerm = z.infer<typeof CreateBusinessTermSchema>;
+
+export const UpdateBusinessTermSchema = CreateBusinessTermSchema.partial();
+export type UpdateBusinessTerm = z.infer<typeof UpdateBusinessTermSchema>;
+
+export const SemanticMappingSchema = z.object({
+  id: z.string().uuid(),
+  businessTermId: z.string().uuid(),
+  assetId: z.string().uuid(),
+  columnName: z.string().optional(),
+  mappingType: MappingTypeEnum,
+  confidence: z.number().min(0).max(1).default(1.0),
+  description: z.string().optional(),
+  createdById: z.string().uuid(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type SemanticMapping = z.infer<typeof SemanticMappingSchema>;
+
+export const CreateSemanticMappingSchema = z.object({
+  businessTermId: z.string().uuid(),
+  assetId: z.string().uuid(),
+  columnName: z.string().optional(),
+  mappingType: MappingTypeEnum.default('EXACT'),
+  confidence: z.number().min(0).max(1).default(1.0),
+  description: z.string().max(500).optional(),
+});
+
+export type CreateSemanticMapping = z.infer<typeof CreateSemanticMappingSchema>;
+
+export interface BusinessTermWithMappings extends BusinessTerm {
+  domain?: BusinessDomain;
+  mappings?: SemanticMapping[];
+  owner?: { id: string; username: string; email: string };
+}
+
+export interface AssetWithBusinessTerms {
+  assetId: string;
+  assetName: string;
+  terms: Array<{
+    term: BusinessTerm;
+    mapping: SemanticMapping;
+  }>;
+}
+
+// =====================
 // Connection Types
 // =====================
 

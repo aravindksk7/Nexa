@@ -44,11 +44,14 @@ interface Asset {
   id: string;
   name: string;
   type: string;
+  assetType?: string;
   description?: string;
   domain?: string;
+  ownerId?: string;
   owner?: {
     id: string;
-    name: string;
+    username?: string;
+    name?: string;
   };
   tags: string[];
   createdAt: string;
@@ -95,53 +98,39 @@ export default function CatalogPage() {
   const { data, isLoading } = useQuery<PaginatedResponse<Asset>>({
     queryKey: ['assets', { page, rowsPerPage, search }],
     queryFn: async () => {
-      // In production: api.get(`/assets?page=${page + 1}&pageSize=${rowsPerPage}&q=${search}`)
+      const params = new URLSearchParams({
+        page: String(page + 1),
+        limit: String(rowsPerPage),
+      });
+      if (search) params.append('search', search);
+      
+      const result = await api.get<{
+        data: Asset[];
+        pagination: { page: number; limit: number; total: number; totalPages: number };
+      }>(`/assets?${params.toString()}`);
+      
       return {
-        data: [
-          {
-            id: '1',
-            name: 'customers',
-            type: 'TABLE',
-            description: 'Customer master data',
-            domain: 'Sales',
-            owner: { id: '1', name: 'John Doe' },
-            tags: ['pii', 'master-data'],
-            createdAt: new Date(Date.now() - 86400000 * 30).toISOString(),
-            updatedAt: new Date(Date.now() - 86400000).toISOString(),
-          },
-          {
-            id: '2',
-            name: 'orders',
-            type: 'TABLE',
-            description: 'Sales order transactions',
-            domain: 'Sales',
-            owner: { id: '1', name: 'John Doe' },
-            tags: ['transactional'],
-            createdAt: new Date(Date.now() - 86400000 * 20).toISOString(),
-            updatedAt: new Date(Date.now() - 3600000 * 5).toISOString(),
-          },
-          {
-            id: '3',
-            name: 'daily_revenue_report',
-            type: 'VIEW',
-            description: 'Daily aggregated revenue metrics',
-            domain: 'Finance',
-            owner: { id: '2', name: 'Jane Smith' },
-            tags: ['financial', 'kpi'],
-            createdAt: new Date(Date.now() - 86400000 * 10).toISOString(),
-            updatedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-          },
-        ],
-        total: 3,
-        page: page + 1,
-        pageSize: rowsPerPage,
+        data: result.data.map(asset => ({
+          ...asset,
+          type: asset.type || (asset as unknown as { assetType: string }).assetType,
+          owner: asset.owner || undefined,  
+        })),
+        total: result.pagination.total,
+        page: result.pagination.page,
+        pageSize: result.pagination.limit,
       };
     },
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: { name: string; type: string; description: string; domain: string }) =>
-      api.post('/assets', data),
+    mutationFn: (formData: { name: string; type: string; description: string; domain: string }) =>
+      api.post('/assets', {
+        name: formData.name,
+        assetType: formData.type,
+        description: formData.description || undefined,
+        domain: formData.domain || undefined,
+        tags: [],
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['assets'] });
       setCreateDialogOpen(false);
@@ -264,7 +253,7 @@ export default function CatalogPage() {
                       <Chip label={asset.type} size="small" color={getTypeColor(asset.type)} variant="outlined" />
                     </TableCell>
                     <TableCell>{asset.domain || '-'}</TableCell>
-                    <TableCell>{asset.owner?.name || '-'}</TableCell>
+                    <TableCell>{asset.owner?.username || asset.owner?.name || '-'}</TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                         {asset.tags.slice(0, 2).map((tag) => (

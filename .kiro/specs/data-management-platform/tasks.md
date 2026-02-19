@@ -356,7 +356,7 @@ Establish foundational data asset management, lineage capture, and data source i
 ### Objective
 Enable users to understand and explore data relationships and content through visualization, search, and profiling.
 
-**Covers Requirements**: 3, 4, 5, 18
+**Covers Requirements**: 3, 4, 5, 18, 20, 21
 
 - [ ] 18. Graph Operations with graphlib
   - [ ] 18.1 Implement graph data structure
@@ -522,6 +522,91 @@ Enable users to understand and explore data relationships and content through vi
     - Test chart rendering
     - _Requirements: 18.1, 18.2, 18.3, 18.4_
 
+- [ ] 24A. Business Lineage and Glossary Implementation
+  - [ ] 24A.1 Create database models for business glossary
+    - Create BusinessTerm table (id, name, definition, domain, subdomain, ownerId, status, createdAt, updatedAt)
+    - Create BusinessDomain table (id, name, description, parentId)
+    - Create SemanticMapping table (id, businessTermId, assetId, columnName, mappingType, confidence)
+    - Add indexes and foreign key constraints
+    - Run Prisma migrations
+    - _Requirements: 20.1, 20.4_
+  
+  - [ ] 24A.2 Implement BusinessGlossaryService
+    - Create CRUD operations for business terms
+    - Implement domain hierarchy management
+    - Create semantic mapping methods (mapTermToAsset, unmapTermFromAsset)
+    - Implement getTermsByAsset and getAssetsByTerm queries
+    - Implement term deprecation with notification triggers
+    - _Requirements: 20.1, 20.2, 20.3, 20.7_
+  
+  - [ ] 24A.3 Add business glossary API endpoints
+    - GET/POST /api/v1/glossary/terms (list/create terms)
+    - GET/PUT/DELETE /api/v1/glossary/terms/:id (term CRUD)
+    - GET/POST /api/v1/glossary/domains (list/create domains)
+    - POST /api/v1/glossary/terms/:id/mappings (create mapping)
+    - DELETE /api/v1/glossary/mappings/:id (remove mapping)
+    - GET /api/v1/glossary/terms/:id/assets (get mapped assets)
+    - GET /api/v1/assets/:id/terms (get business terms for asset)
+    - _Requirements: 20.2, 20.3_
+  
+  - [ ] 24A.4 Extend lineage visualization with business context
+    - Add business term overlay option to lineage graph
+    - Display business terms in node tooltips
+    - Add business lineage view (term-to-term flow)
+    - _Requirements: 20.5, 20.6_
+  
+  - [ ]* 24A.5 Write property tests for business glossary
+    - **Property 70: Business Term Creation**
+    - **Property 71: Semantic Mapping Integrity**
+    - **Property 72: Domain Hierarchy Validation**
+    - **Property 73: Term Deprecation Notification**
+    - **Validates: Requirements 20.1, 20.2, 20.3, 20.4, 20.7**
+
+- [ ] 24B. Column-Level Lineage Implementation
+  - [ ] 24B.1 Create database models for column lineage
+    - Create ColumnLineageEdge table (id, sourceAssetId, sourceColumn, targetAssetId, targetColumn, transformationType, transformationExpression, lineageEdgeId)
+    - Add transformation types enum (DIRECT, DERIVED, AGGREGATED, FILTERED, JOINED)
+    - Add indexes for efficient traversal
+    - Run Prisma migrations
+    - _Requirements: 21.1, 21.7_
+  
+  - [ ] 24B.2 Enhance SQL parsing for column-level lineage
+    - Extend parseSqlLineage to extract column mappings
+    - Parse SELECT expressions for column transformations
+    - Handle CASE, COALESCE, arithmetic expressions
+    - Parse JOIN conditions for column relationships
+    - Handle aggregation functions (SUM, COUNT, AVG)
+    - _Requirements: 21.2, 21.4_
+  
+  - [ ] 24B.3 Implement ColumnLineageService
+    - Create CRUD operations for column lineage edges
+    - Implement getColumnUpstream and getColumnDownstream methods
+    - Create performColumnImpactAnalysis method
+    - Link column lineage to table-level lineage edges
+    - _Requirements: 21.1, 21.3, 21.5_
+  
+  - [ ] 24B.4 Add column lineage API endpoints
+    - POST /api/v1/lineage/columns (create column lineage edge)
+    - GET /api/v1/lineage/columns/:assetId/:column/upstream
+    - GET /api/v1/lineage/columns/:assetId/:column/downstream
+    - GET /api/v1/lineage/columns/:assetId/:column/impact
+    - GET /api/v1/lineage/:id/columns (get column lineage for asset)
+    - _Requirements: 21.3, 21.5_
+  
+  - [ ] 24B.5 Enhance lineage visualization for columns
+    - Add column-level drill-down in lineage graph
+    - Create expandable node component showing columns
+    - Highlight column-to-column relationships
+    - Show transformation expressions on edges
+    - _Requirements: 21.6_
+  
+  - [ ]* 24B.6 Write property tests for column lineage
+    - **Property 74: Column Lineage Edge Creation**
+    - **Property 75: SQL Column Extraction Accuracy**
+    - **Property 76: Column Impact Analysis**
+    - **Property 77: Transformation Type Classification**
+    - **Validates: Requirements 21.1, 21.2, 21.5, 21.7**
+
 - [ ] 25. Checkpoint - Phase 2 Complete
   - Ensure all Phase 2 tests pass
   - Verify end-to-end workflows:
@@ -530,6 +615,11 @@ Enable users to understand and explore data relationships and content through vi
     - User can search and discover assets
     - User can preview data
     - User can view profiling statistics
+    - User can create and manage business terms
+    - User can map business terms to data assets
+    - User can view business lineage context on technical lineage
+    - User can track column-level lineage
+    - User can perform column impact analysis
   - Ask the user if questions arise
 
 ## Phase 3: Governance Workflows and Data Quality

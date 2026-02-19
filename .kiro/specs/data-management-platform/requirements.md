@@ -24,6 +24,11 @@ This document specifies the requirements for an open-source Data Management Plat
 - **Data_Source**: An external system (database, file system) from which data assets are cataloged
 - **Schema_Inference**: The process of automatically detecting column names and data types from data
 - **Data_Profiling**: Statistical analysis of data content including distributions and quality metrics
+- **Business_Term**: A vocabulary entry defining a business concept with its definition, domain, and ownership
+- **Business_Glossary**: A collection of business terms organized by domain that provides semantic context for technical data
+- **Business_Lineage**: The flow of business concepts through the data ecosystem, independent of technical implementation
+- **Column_Lineage**: The detailed tracking of data flow at the column level, showing how source columns transform into target columns
+- **Semantic_Mapping**: The relationship between a business term and its corresponding technical data assets
 
 ## Requirements
 
@@ -255,6 +260,34 @@ This document specifies the requirements for an open-source Data Management Plat
 4. THE Platform SHALL track which data assets were extracted from each data source connection
 5. WHEN a data source connection is deleted, THE Platform SHALL optionally preserve or remove associated data assets based on user preference
 
+### Requirement 20: Business Lineage and Glossary
+
+**User Story:** As a Business_Analyst, I want to define business terms and map them to technical data assets, so that I can understand data in business context and track semantic lineage.
+
+#### Acceptance Criteria
+
+1. WHEN a Data_Steward creates a business term, THE Platform SHALL store the term with its definition, owner, and domain classification
+2. THE Platform SHALL support mapping business terms to technical assets (tables, columns, datasets) as semantic relationships
+3. WHEN a user queries a business term, THE Platform SHALL return all mapped technical assets with relationship context
+4. THE Platform SHALL support hierarchical organization of business terms into domains and sub-domains
+5. WHEN viewing technical lineage, THE Platform SHALL optionally overlay business term context on lineage nodes
+6. THE Platform SHALL track Business_Lineage separately from Technical_Lineage, showing how business concepts flow through the organization
+7. WHEN a business term is deprecated, THE Platform SHALL notify users of affected mappings and suggest alternatives
+
+### Requirement 21: Column-Level Lineage
+
+**User Story:** As a Data_Engineer, I want to track data lineage at the column level, so that I can understand exactly which source columns contribute to each target column.
+
+#### Acceptance Criteria
+
+1. WHEN a transformation is registered, THE Platform SHALL capture column-to-column mappings between source and target assets
+2. THE Lineage_Engine SHALL parse SQL queries to extract column-level lineage relationships automatically using expression analysis
+3. WHEN a user requests column lineage for an asset, THE Platform SHALL return both upstream source columns and downstream dependent columns
+4. THE Platform SHALL support transformation expressions showing how source columns are combined or modified to produce target columns
+5. WHEN performing impact analysis on a column, THE Platform SHALL identify all downstream columns affected by changes
+6. THE Platform SHALL visualize column-level lineage within the context of table-level lineage, allowing drill-down from table to column view
+7. THE Platform SHALL store column lineage metadata including transformation type (DIRECT, DERIVED, AGGREGATED, FILTERED)
+
 ## MVP Roadmap
 
 ### Phase 1: Core Metadata Catalog and Basic Lineage
@@ -262,8 +295,9 @@ This document specifies the requirements for an open-source Data Management Plat
 - Establishes foundational data asset management, lineage capture, and data source integration
 
 ### Phase 2: Advanced Lineage Visualization and Impact Analysis
-- Requirements 3, 4, 5, 18 (Lineage visualization, impact analysis, search and discovery, data preview and profiling)
+- Requirements 3, 4, 5, 18, 20, 21 (Lineage visualization, impact analysis, search and discovery, data preview and profiling, business lineage, column-level lineage)
 - Enables users to understand and explore data relationships and content
+- Adds business glossary with semantic mappings and column-level lineage tracking
 
 ### Phase 3: Governance Workflows and Data Quality
 - Requirements 6, 7, 8, 12, 13, 14, 15, 19 (Governance workflows, quality monitoring, access control, versioning, bulk operations, relationships, notifications, connector management)

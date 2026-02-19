@@ -24,6 +24,8 @@ import {
   Menu,
   ListItemIcon,
 } from '@mui/material';
+import { SimpleTreeView } from '@mui/x-tree-view/SimpleTreeView';
+import { TreeItem } from '@mui/x-tree-view/TreeItem';
 import {
   Add as AddIcon,
   Storage as DatabaseIcon,
@@ -33,6 +35,10 @@ import {
   Sync as SyncIcon,
   Check as CheckIcon,
   Error as ErrorIcon,
+  TableChart as TableIcon,
+  ViewColumn as ColumnIcon,
+  Folder as FolderIcon,
+  AccountTree as ExploreIcon,
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, Controller } from 'react-hook-form';
@@ -43,13 +49,41 @@ interface Connection {
   id: string;
   name: string;
   type: 'POSTGRESQL' | 'MYSQL' | 'SQLSERVER';
+  connectionType?: 'POSTGRESQL' | 'MYSQL' | 'SQLSERVER';
   host: string;
   port: number;
-  database: string;
-  username: string;
+  database?: string;
+  username?: string;
   status: 'CONNECTED' | 'ERROR' | 'PENDING';
+  isActive?: boolean;
+  lastTestSuccess?: boolean;
+  lastTestedAt?: string;
   lastSyncAt?: string;
   createdAt: string;
+}
+
+interface ColumnSchema {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+  primaryKey: boolean;
+  foreignKey?: boolean;
+}
+
+interface TableSchema {
+  name: string;
+  schema?: string;
+  type?: 'TABLE' | 'VIEW';
+  columns: ColumnSchema[];
+}
+
+interface DatabaseSchema {
+  name: string;
+  tables: TableSchema[];
+}
+
+interface SourceSchema {
+  databases: DatabaseSchema[];
 }
 
 const CONNECTION_TYPES = [
@@ -65,6 +99,8 @@ export default function ConnectionsPage() {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const [selectedConnection, setSelectedConnection] = useState<Connection | null>(null);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [exploreDialogOpen, setExploreDialogOpen] = useState(false);
+  const [exploringConnection, setExploringConnection] = useState<Connection | null>(null);
 
   const { control, handleSubmit, reset, watch, formState: { errors } } = useForm({
     defaultValues: {
@@ -83,44 +119,15 @@ export default function ConnectionsPage() {
   const { data: connections, isLoading } = useQuery<Connection[]>({
     queryKey: ['connections'],
     queryFn: async () => {
-      // In production: api.get('/connections')
-      return [
-        {
-          id: '1',
-          name: 'Production Database',
-          type: 'POSTGRESQL',
-          host: 'prod-db.company.com',
-          port: 5432,
-          database: 'analytics',
-          username: 'reader',
-          status: 'CONNECTED',
-          lastSyncAt: new Date(Date.now() - 3600000).toISOString(),
-          createdAt: new Date(Date.now() - 86400000 * 30).toISOString(),
-        },
-        {
-          id: '2',
-          name: 'Staging MySQL',
-          type: 'MYSQL',
-          host: 'staging-mysql.company.com',
-          port: 3306,
-          database: 'staging',
-          username: 'etl_user',
-          status: 'CONNECTED',
-          lastSyncAt: new Date(Date.now() - 7200000).toISOString(),
-          createdAt: new Date(Date.now() - 86400000 * 15).toISOString(),
-        },
-        {
-          id: '3',
-          name: 'Legacy SQL Server',
-          type: 'SQLSERVER',
-          host: 'legacy-sqlserver.company.com',
-          port: 1433,
-          database: 'legacy_apps',
-          username: 'svc_account',
-          status: 'ERROR',
-          createdAt: new Date(Date.now() - 86400000 * 60).toISOString(),
-        },
-      ] as Connection[];
+      const result = await api.get<{ connections: Connection[] }>('/connections');
+      return result.connections.map(conn => ({
+        ...conn,
+        type: conn.type || conn.connectionType || 'POSTGRESQL',
+        database: conn.database || '',
+        username: conn.username || '',
+        status: conn.lastTestSuccess === true ? 'CONNECTED' : conn.lastTestSuccess === false ? 'ERROR' : 'PENDING',
+        lastSyncAt: conn.lastTestedAt,
+      }));
     },
   });
 
@@ -157,6 +164,19 @@ export default function ConnectionsPage() {
     },
   });
 
+  // Schema exploration query
+  const { data: schemaData, isLoading: schemaLoading } = useQuery<SourceSchema>({
+    queryKey: ['connection-schema', exploringConnection?.id],
+    queryFn: () => api.get<SourceSchema>(`/connections/${exploringConnection!.id}/explore`),
+    enabled: !!exploringConnection && exploreDialogOpen,
+  });
+
+  const handleExploreSchema = (connection: Connection) => {
+    setExploringConnection(connection);
+    setExploreDialogOpen(true);
+    handleMenuClose();
+  };
+
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, connection: Connection) => {
     event.stopPropagation();
     setAnchorEl(event.currentTarget);
@@ -175,8 +195,10 @@ export default function ConnectionsPage() {
     reset();
   };
 
-  const onSubmit = (data: object) => {
-    createMutation.mutate(data);
+  const onSubmit = (data: Record<string, unknown>) => {
+    // Backend expects connectionType instead of type
+    const { type, ...rest } = data;
+    createMutation.mutate({ ...rest, connectionType: type });
   };
 
   const getStatusColor = (status: string) => {
@@ -232,7 +254,7 @@ export default function ConnectionsPage() {
       ) : (
         <Grid container spacing={3}>
           {connections?.map((connection) => (
-            <Grid size={{ xs: 12, sm: 6, lg: 4 }} key={connection.id}>
+            <Grid item xs={12} sm={6} lg={4} key={connection.id}>
               <Card
                 sx={{
                   height: '100%',
@@ -299,6 +321,16 @@ export default function ConnectionsPage() {
 
       {/* Action Menu */}
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleMenuClose}>
+        <MenuItem
+          onClick={() => {
+            if (selectedConnection) handleExploreSchema(selectedConnection);
+          }}
+        >
+          <ListItemIcon>
+            <ExploreIcon fontSize="small" />
+          </ListItemIcon>
+          Explore Schema
+        </MenuItem>
         <MenuItem
           onClick={() => {
             if (selectedConnection) syncMutation.mutate(selectedConnection.id);
@@ -466,7 +498,10 @@ export default function ConnectionsPage() {
           <DialogActions>
             <Button onClick={handleCloseDialog}>Cancel</Button>
             <Button
-              onClick={handleSubmit((data) => testMutation.mutate(data))}
+              onClick={handleSubmit((data) => {
+                const { type, ...rest } = data;
+                testMutation.mutate({ ...rest, connectionType: type });
+              })}
               disabled={testMutation.isPending}
             >
               {testMutation.isPending ? 'Testing...' : 'Test Connection'}
@@ -476,6 +511,115 @@ export default function ConnectionsPage() {
             </Button>
           </DialogActions>
         </form>
+      </Dialog>
+
+      {/* Schema Exploration Dialog */}
+      <Dialog
+        open={exploreDialogOpen}
+        onClose={() => setExploreDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ExploreIcon />
+            Schema Explorer - {exploringConnection?.name}
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {schemaLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 4 }}>
+              <CircularProgress />
+              <Typography sx={{ ml: 2 }}>Loading schema...</Typography>
+            </Box>
+          ) : schemaData ? (
+            <Box sx={{ mt: 1 }}>
+              <SimpleTreeView
+                aria-label="schema explorer"
+                sx={{ 
+                  height: 400, 
+                  flexGrow: 1, 
+                  overflowY: 'auto',
+                  '& .MuiTreeItem-content': {
+                    py: 0.5,
+                  }
+                }}
+              >
+                {schemaData.databases.map((db: DatabaseSchema) => (
+                  <TreeItem 
+                    key={`db-${db.name}`} 
+                    itemId={`db-${db.name}`} 
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
+                        <FolderIcon fontSize="small" color="primary" />
+                        <Typography variant="body2" fontWeight={500}>{db.name}</Typography>
+                        <Chip label={`${db.tables.length} tables`} size="small" variant="outlined" />
+                      </Box>
+                    }
+                  >
+                    {db.tables.map((table: TableSchema) => (
+                      <TreeItem 
+                        key={`table-${db.name}-${table.name}`} 
+                        itemId={`table-${db.name}-${table.name}`}
+                        label={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
+                            <TableIcon fontSize="small" color="action" />
+                            <Typography variant="body2">{table.name}</Typography>
+                            {table.type && (
+                              <Chip 
+                                label={table.type} 
+                                size="small" 
+                                variant="outlined"
+                                color={table.type === 'VIEW' ? 'info' : 'default'}
+                              />
+                            )}
+                            <Typography variant="caption" color="text.secondary">
+                              ({table.columns.length} columns)
+                            </Typography>
+                          </Box>
+                        }
+                      >
+                        {table.columns.map((col: ColumnSchema) => (
+                          <TreeItem 
+                            key={`col-${db.name}-${table.name}-${col.name}`} 
+                            itemId={`col-${db.name}-${table.name}-${col.name}`}
+                            label={
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
+                                <ColumnIcon fontSize="small" sx={{ color: 'grey.500' }} />
+                                <Typography variant="body2">{col.name}</Typography>
+                                <Chip 
+                                  label={col.dataType} 
+                                  size="small" 
+                                  sx={{ fontSize: '0.7rem', height: 20 }}
+                                />
+                                {col.primaryKey && (
+                                  <Chip label="PK" size="small" color="warning" sx={{ fontSize: '0.65rem', height: 18 }} />
+                                )}
+                                {col.foreignKey && (
+                                  <Chip label="FK" size="small" color="secondary" sx={{ fontSize: '0.65rem', height: 18 }} />
+                                )}
+                                {!col.nullable && (
+                                  <Chip label="NOT NULL" size="small" variant="outlined" sx={{ fontSize: '0.65rem', height: 18 }} />
+                                )}
+                              </Box>
+                            }
+                          />
+                        ))}
+                      </TreeItem>
+                    ))}
+                  </TreeItem>
+                ))}
+              </SimpleTreeView>
+            </Box>
+          ) : (
+            <Alert severity="info">
+              No schema information available. Try syncing the connection first.
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setExploreDialogOpen(false)}>Close</Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

@@ -1,0 +1,11 @@
+order_id,customer_id,product_id,order_date,quantity,unit_price,discount_pct,total_amount,payment_method,shipping_status
+ORD-001,101,1,2024-01-16,1,1299.99,0.10,1169.99,Credit Card,Delivered
+ORD-002,102,2,2024-01-21,2,29.99,0.00,59.98,PayPal,Delivered
+ORD-003,103,3,2024-02-02,1,349.00,0.05,331.55,Credit Card,Delivered
+ORD-004,104,6,2024-02-12,1,149.99,0.00,149.99,Debit Card,Delivered
+ORD-005,105,5,2024-02-18,2,599.00,0.15,1018.30,Credit Card,Delivered
+ORD-006,106,8,2024-03-05,3,45.99,0.00,137.97,PayPal,Delivered
+ORD-007,107,7,2024-03-12,1,449.00,0.10,404.10,Credit Card,In Transit
+ORD-008,108,2,2024-03-18,4,29.99,0.05,113.96,Debit Card,Processing
+ORD-009,109,1,2024-03-25,1,1299.99,0.20,1039.99,Credit Card,Shipped
+ORD-010,110,10,2024-04-02,10,12.99,0.00,129.90,PayPal,Pending

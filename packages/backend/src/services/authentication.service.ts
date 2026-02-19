@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/index.js';
 import { prisma } from '../lib/prisma.js';
 import { createChildLogger } from '../utils/logger.js';
-import { UnauthorizedError, ValidationError, ConflictError } from '../middleware/errorHandler.js';
+import { UnauthorizedError, ValidationError, ConflictError, NotFoundError } from '../middleware/errorHandler.js';
 import type { User, CreateUser, LoginInput, Role } from '../models/index.js';
 
 const logger = createChildLogger('AuthenticationService');
@@ -302,6 +302,39 @@ export class AuthenticationService {
       expiresIn: config.jwt.expiresIn,
       tokenType: 'Bearer',
     };
+  }
+
+  /**
+   * Update user profile
+   */
+  async updateProfile(
+    userId: string,
+    updates: { username?: string; firstName?: string; lastName?: string }
+  ): Promise<User> {
+    const existingUser = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!existingUser) {
+      throw new NotFoundError('User not found');
+    }
+
+    // Check username uniqueness if being updated
+    if (updates.username && updates.username !== existingUser.username) {
+      const usernameExists = await prisma.user.findUnique({
+        where: { username: updates.username },
+      });
+      if (usernameExists) {
+        throw new ConflictError('Username is already taken');
+      }
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: updates,
+    });
+
+    return this.sanitizeUser(updatedUser);
   }
 
   /**

@@ -23,7 +23,9 @@ import {
   Security as SecurityIcon,
   Palette as PaletteIcon,
 } from '@mui/icons-material';
+import { useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/providers/AuthProvider';
+import { api } from '@/lib/api';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -47,9 +49,10 @@ function TabPanel(props: TabPanelProps) {
 }
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [tabValue, setTabValue] = useState(0);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Profile settings state
   const [firstName, setFirstName] = useState(user?.firstName || '');
@@ -72,10 +75,53 @@ export default function SettingsPage() {
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
+    setSaveError(null);
   };
 
+  const profileMutation = useMutation({
+    mutationFn: (data: { firstName?: string; lastName?: string }) =>
+      api.put('/auth/profile', data),
+    onSuccess: () => {
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+      refreshUser?.();
+    },
+    onError: (error: Error) => {
+      setSaveError(error.message || 'Failed to save profile');
+    },
+  });
+
+  const passwordMutation = useMutation({
+    mutationFn: (data: { oldPassword: string; newPassword: string }) =>
+      api.post('/auth/change-password', data),
+    onSuccess: () => {
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    },
+    onError: (error: Error) => {
+      setSaveError(error.message || 'Failed to change password');
+    },
+  });
+
+  const handleProfileSave = () => {
+    setSaveError(null);
+    profileMutation.mutate({ firstName, lastName });
+  };
+
+  const handlePasswordChange = () => {
+    setSaveError(null);
+    if (newPassword !== confirmPassword) {
+      setSaveError('New passwords do not match');
+      return;
+    }
+    passwordMutation.mutate({ oldPassword: currentPassword, newPassword });
+  };
+
+  // Placeholder for notifications/appearance settings (no API yet)
   const handleSave = () => {
-    // TODO: Implement save functionality
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
   };
@@ -89,6 +135,12 @@ export default function SettingsPage() {
       {saveSuccess && (
         <Alert severity="success" sx={{ mb: 3 }}>
           Settings saved successfully!
+        </Alert>
+      )}
+
+      {saveError && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {saveError}
         </Alert>
       )}
 
@@ -152,8 +204,12 @@ export default function SettingsPage() {
               />
 
               <Box>
-                <Button variant="contained" onClick={handleSave}>
-                  Save Changes
+                <Button 
+                  variant="contained" 
+                  onClick={handleProfileSave}
+                  disabled={profileMutation.isPending}
+                >
+                  {profileMutation.isPending ? 'Saving...' : 'Save Changes'}
                 </Button>
               </Box>
             </Stack>
@@ -244,10 +300,10 @@ export default function SettingsPage() {
               <Box>
                 <Button
                   variant="contained"
-                  disabled={!currentPassword || !newPassword || newPassword !== confirmPassword}
-                  onClick={handleSave}
+                  disabled={!currentPassword || !newPassword || newPassword !== confirmPassword || passwordMutation.isPending}
+                  onClick={handlePasswordChange}
                 >
-                  Update Password
+                  {passwordMutation.isPending ? 'Updating...' : 'Update Password'}
                 </Button>
               </Box>
 
