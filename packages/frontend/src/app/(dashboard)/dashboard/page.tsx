@@ -30,11 +30,14 @@ export default function DashboardPage() {
   const { data: stats, isLoading } = useQuery<DashboardStats>({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
-      // Fetch real counts from the assets API
-      const assetsRes = await api.get<{
-        data: unknown[];
-        pagination: { total: number };
-      }>('/assets?page=1&limit=1');
+      // Fetch real counts from the assets API and quality overview in parallel
+      const [assetsRes, qualityOverview] = await Promise.all([
+        api.get<{
+          data: unknown[];
+          pagination: { total: number };
+        }>('/assets?page=1&limit=1'),
+        api.get<{ overallScore: number; totalRules: number }>('/quality/overview').catch(() => ({ overallScore: 0, totalRules: 0 })),
+      ]);
 
       const totalAssets = assetsRes.pagination?.total ?? 0;
 
@@ -42,7 +45,7 @@ export default function DashboardPage() {
         totalAssets,
         totalConnections: 0,
         recentUploads: 0,
-        qualityScore: 0,
+        qualityScore: qualityOverview.overallScore ?? 0,
       };
     },
   });

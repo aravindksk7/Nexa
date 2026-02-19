@@ -32,6 +32,7 @@ import {
   Settings as SettingsIcon,
   Logout as LogoutIcon,
   Person as PersonIcon,
+  Business as GlossaryIcon,
 } from '@mui/icons-material';
 import { useAuth } from '@/providers/AuthProvider';
 
@@ -41,6 +42,7 @@ const menuItems = [
   { label: 'Dashboard', icon: DashboardIcon, path: '/dashboard' },
   { label: 'Data Catalog', icon: StorageIcon, path: '/catalog' },
   { label: 'Lineage', icon: AccountTreeIcon, path: '/lineage' },
+  { label: 'Glossary', icon: GlossaryIcon, path: '/glossary' },
   { label: 'Connections', icon: LinkIcon, path: '/connections' },
   { label: 'File Upload', icon: CloudUploadIcon, path: '/upload' },
   { label: 'Search', icon: SearchIcon, path: '/search' },

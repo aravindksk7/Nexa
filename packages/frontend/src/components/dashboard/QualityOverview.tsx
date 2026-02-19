@@ -12,6 +12,7 @@ import {
   ListItemText,
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 
 interface QualityMetric {
   name: string;
@@ -19,23 +20,25 @@ interface QualityMetric {
   color: string;
 }
 
+interface QualityOverviewResponse {
+  overallScore: number;
+  dimensions: QualityMetric[];
+  statusBreakdown: { healthy: number; warning: number; critical: number; unknown: number };
+  totalRules: number;
+  totalEvaluations: number;
+}
+
 export function QualityOverview() {
-  const { data: metrics, isLoading } = useQuery<QualityMetric[]>({
+  const { data: overview, isLoading } = useQuery<QualityOverviewResponse>({
     queryKey: ['quality-overview'],
     queryFn: async () => {
-      // In production, fetch from /api/v1/quality/overview
-      return [
-        { name: 'Completeness', score: 96, color: '#22c55e' },
-        { name: 'Accuracy', score: 92, color: '#0ea5e9' },
-        { name: 'Timeliness', score: 88, color: '#f59e0b' },
-        { name: 'Consistency', score: 94, color: '#8b5cf6' },
-      ];
+      return api.get<QualityOverviewResponse>('/quality/overview');
     },
   });
 
-  const overallScore = metrics
-    ? Math.round(metrics.reduce((sum, m) => sum + m.score, 0) / metrics.length)
-    : 0;
+  const metrics = overview?.dimensions ?? [];
+
+  const overallScore = overview?.overallScore ?? 0;
 
   return (
     <Card sx={{ height: '100%' }}>
