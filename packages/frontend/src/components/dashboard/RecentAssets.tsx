@@ -16,14 +16,21 @@ import {
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
+import { api } from '@/lib/api';
 import { formatDistanceToNow } from '@/lib/utils';
 
 interface Asset {
   id: string;
   name: string;
   type: string;
+  assetType?: string;
   domain?: string;
   updatedAt: string;
+}
+
+interface PaginatedResponse {
+  data: Asset[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
 }
 
 export function RecentAssets() {
@@ -32,44 +39,11 @@ export function RecentAssets() {
   const { data: assets, isLoading } = useQuery<Asset[]>({
     queryKey: ['recent-assets'],
     queryFn: async () => {
-      // In production, fetch from /api/v1/assets?sort=updatedAt&limit=5
-      return [
-        {
-          id: '1',
-          name: 'customers',
-          type: 'TABLE',
-          domain: 'Sales',
-          updatedAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-        },
-        {
-          id: '2',
-          name: 'orders',
-          type: 'TABLE',
-          domain: 'Sales',
-          updatedAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-        },
-        {
-          id: '3',
-          name: 'daily_revenue',
-          type: 'VIEW',
-          domain: 'Finance',
-          updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-        },
-        {
-          id: '4',
-          name: 'user_events',
-          type: 'TOPIC',
-          domain: 'Analytics',
-          updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
-        },
-        {
-          id: '5',
-          name: 'product_catalog',
-          type: 'DATASET',
-          domain: 'Products',
-          updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-        },
-      ];
+      const result = await api.get<PaginatedResponse>('/assets?page=1&limit=5');
+      return result.data.map(asset => ({
+        ...asset,
+        type: asset.type || asset.assetType || 'TABLE',
+      }));
     },
   });
 

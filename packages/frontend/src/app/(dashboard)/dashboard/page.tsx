@@ -30,13 +30,19 @@ export default function DashboardPage() {
   const { data: stats, isLoading } = useQuery<DashboardStats>({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
-      // In production, fetch from /api/v1/dashboard/stats
-      // For now, return mock data
+      // Fetch real counts from the assets API
+      const assetsRes = await api.get<{
+        data: unknown[];
+        pagination: { total: number };
+      }>('/assets?page=1&limit=1');
+
+      const totalAssets = assetsRes.pagination?.total ?? 0;
+
       return {
-        totalAssets: 156,
-        totalConnections: 12,
-        recentUploads: 8,
-        qualityScore: 94,
+        totalAssets,
+        totalConnections: 0,
+        recentUploads: 0,
+        qualityScore: 0,
       };
     },
   });
