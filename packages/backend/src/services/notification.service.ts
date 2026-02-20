@@ -22,7 +22,7 @@ export class NotificationService {
         type: input.type,
         title: input.title,
         message: input.message,
-        metadata: input.metadata ? (input.metadata as object) : undefined,
+        ...(input.metadata !== undefined ? { metadata: input.metadata as object } : {}),
       },
     });
   }

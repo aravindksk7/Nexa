@@ -4,7 +4,7 @@ const prisma = new PrismaClient();
 
 // Define types based on Prisma schema
 type RuleType = 'COMPLETENESS' | 'UNIQUENESS' | 'RANGE' | 'PATTERN' | 'REFERENTIAL' | 'CUSTOM';
-type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+type Severity = 'INFO' | 'WARNING' | 'CRITICAL';
 type JsonValue = string | number | boolean | null | { [key: string]: JsonValue } | JsonValue[];
 
 interface QualityRule {
@@ -479,6 +479,9 @@ export class QualityService {
     statusBreakdown: { healthy: number; warning: number; critical: number; unknown: number };
     totalRules: number;
     totalEvaluations: number;
+    passedRules: number;
+    failedRules: number;
+    recentFailures: Array<{ ruleId: string; assetId: string; ruleName: string; assetName: string; severity: string; executedAt: string }>;
   }> {
     // Get all assets with their quality status
     const assets = await prisma.asset.findMany({
@@ -526,6 +529,28 @@ export class QualityService {
       }
     }
 
+    const passedRules = Object.values(dimensionStats).reduce((s, d) => s + d.passed, 0);
+    const failedRules = totalEvaluations - passedRules;
+
+    // Collect recent failures (last 10 failing results)
+    const recentFailureResults = await (prisma.qualityResult as unknown as {
+      findMany: (args: object) => Promise<{ id: string; ruleId: string; assetId: string; passed: boolean; executedAt: Date; rule: { name: string; severity: string }; asset: { name: string } }[]>;
+    }).findMany({
+      where: { passed: false },
+      orderBy: { executedAt: 'desc' },
+      take: 10,
+      include: { rule: { select: { name: true, severity: true } }, asset: { select: { name: true } } },
+    });
+
+    const recentFailures = recentFailureResults.map((r) => ({
+      ruleId: r.ruleId,
+      assetId: r.assetId,
+      ruleName: r.rule.name,
+      assetName: r.asset.name,
+      severity: r.rule.severity as string,
+      executedAt: r.executedAt.toISOString(),
+    }));
+
     // Map dimensions to user-friendly names and colors
     const dimensionMeta: Record<string, { name: string; color: string }> = {
       COMPLETENESS: { name: 'Completeness', color: '#22c55e' },
@@ -561,6 +586,9 @@ export class QualityService {
       statusBreakdown,
       totalRules,
       totalEvaluations,
+      passedRules,
+      failedRules,
+      recentFailures,
     };
   }
 

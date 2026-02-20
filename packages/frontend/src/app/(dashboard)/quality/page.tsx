@@ -53,9 +53,8 @@ interface QualityRule {
   ruleDefinition: Record<string, unknown>;
   severity: string;
   enabled: boolean;
-  lastRunAt: string | null;
-  lastRunStatus: string | null;
   createdAt: string;
+  lastResult: { passed: boolean; executedAt: string; resultData?: unknown } | null;
   asset?: { id: string; name: string; assetType: string };
 }
 
@@ -74,17 +73,17 @@ interface RuleForm {
   severity: string;
 }
 
-const RULE_TYPES = ['NOT_NULL', 'UNIQUE', 'RANGE', 'REGEX', 'CUSTOM', 'REFERENTIAL_INTEGRITY'];
-const SEVERITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+const RULE_TYPES = ['COMPLETENESS', 'UNIQUENESS', 'RANGE', 'PATTERN', 'REFERENTIAL', 'CUSTOM'];
+const SEVERITIES = ['INFO', 'WARNING', 'CRITICAL'];
 
 const severityColor = (s: string) =>
-  ({ LOW: 'success', MEDIUM: 'warning', HIGH: 'error', CRITICAL: 'error' } as const)[s] ?? 'default';
+  ({ INFO: 'info', WARNING: 'warning', CRITICAL: 'error' } as const)[s] ?? 'default';
 
 export default function QualityPage() {
   const queryClient = useQueryClient();
   const [createDialog, setCreateDialog] = useState(false);
   const [editRule, setEditRule] = useState<QualityRule | null>(null);
-  const [runResult, setRunResult] = useState<{ ruleId: string; status: string; score?: number } | null>(null);
+  const [runResult, setRunResult] = useState<{ ruleId: string; passed: boolean } | null>(null);
 
   const {
     control,
@@ -118,7 +117,7 @@ export default function QualityPage() {
     passedRules: number;
     failedRules: number;
     dimensions: { name: string; score: number; rules: number }[];
-    recentFailures: { ruleId: string; assetId: string; ruleName: string; assetName: string; severity: string; score: number; evaluatedAt: string }[];
+    recentFailures: { ruleId: string; assetId: string; ruleName: string; assetName: string; severity: string; executedAt: string }[];
   }>({
     queryKey: ['quality-overview'],
     queryFn: () => api.get('/quality/overview'),
@@ -162,9 +161,9 @@ export default function QualityPage() {
   });
 
   const evaluateMutation = useMutation({
-    mutationFn: (ruleId: string) => api.post<{ result: { status: string; score: number } }>(`/quality/rules/${ruleId}/evaluate`),
+    mutationFn: (ruleId: string) => api.post<{ result: { ruleId: string; passed: boolean; executedAt: string } }>(`/quality/rules/${ruleId}/evaluate`),
     onSuccess: (data, ruleId) => {
-      setRunResult({ ruleId, status: data.result.status, score: data.result.score });
+      setRunResult({ ruleId, passed: data.result.passed });
       queryClient.invalidateQueries({ queryKey: ['quality-rules', selectedAssetId] });
     },
   });
@@ -250,7 +249,6 @@ export default function QualityPage() {
                     <TableCell sx={{ fontWeight: 600 }}>Rule</TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>Asset</TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>Severity</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Score</TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>Evaluated</TableCell>
                   </TableRow>
                 </TableHead>
@@ -260,8 +258,7 @@ export default function QualityPage() {
                       <TableCell>{f.ruleName}</TableCell>
                       <TableCell>{f.assetName}</TableCell>
                       <TableCell><Chip label={f.severity} size="small" color={severityColor(f.severity)} /></TableCell>
-                      <TableCell>{f.score}%</TableCell>
-                      <TableCell>{formatDistanceToNow(f.evaluatedAt)}</TableCell>
+                      <TableCell>{formatDistanceToNow(f.executedAt)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -317,26 +314,26 @@ export default function QualityPage() {
                       <TableCell><Chip label={rule.ruleType.replace(/_/g, ' ')} size="small" variant="outlined" /></TableCell>
                       <TableCell><Chip label={rule.severity} size="small" color={severityColor(rule.severity)} /></TableCell>
                       <TableCell>
-                        {rule.lastRunStatus ? (
+                        {rule.lastResult != null ? (
                           <Chip
-                            icon={rule.lastRunStatus === 'PASSED' ? <PassIcon /> : <FailIcon />}
-                            label={rule.lastRunStatus}
+                            icon={rule.lastResult.passed ? <PassIcon /> : <FailIcon />}
+                            label={rule.lastResult.passed ? 'PASSED' : 'FAILED'}
                             size="small"
-                            color={rule.lastRunStatus === 'PASSED' ? 'success' : 'error'}
+                            color={rule.lastResult.passed ? 'success' : 'error'}
                           />
                         ) : (
                           <Chip label="Never run" size="small" variant="outlined" />
                         )}
                         {runResult?.ruleId === rule.id && (
                           <Chip
-                            label={`${runResult.status} (${runResult.score}%)`}
+                            label={runResult.passed ? 'PASSED' : 'FAILED'}
                             size="small"
-                            color={runResult.status === 'PASSED' ? 'success' : 'error'}
+                            color={runResult.passed ? 'success' : 'error'}
                             sx={{ ml: 1 }}
                           />
                         )}
                       </TableCell>
-                      <TableCell>{rule.lastRunAt ? formatDistanceToNow(rule.lastRunAt) : '—'}</TableCell>
+                      <TableCell>{rule.lastResult?.executedAt ? formatDistanceToNow(rule.lastResult.executedAt) : '—'}</TableCell>
                       <TableCell>
                         <Box sx={{ display: 'flex', gap: 0.5 }}>
                           <Tooltip title="Run now">
