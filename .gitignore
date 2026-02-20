@@ -26,6 +26,12 @@ yarn-error.log*
 # Testing
 coverage/
 .nyc_output/
+test-results/
+**/test-results/
+playwright-report/
+**/playwright-report/
+e2e-*.txt
+e2e-*.json
 
 # IDE
 .idea/
