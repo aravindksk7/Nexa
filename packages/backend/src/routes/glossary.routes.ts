@@ -217,7 +217,7 @@ glossaryRouter.post(
   '/mappings',
   validate([
     body('businessTermId').isUUID().withMessage('Valid business term ID is required'),
-    body('assetId').isUUID().withMessage('Valid asset ID is required'),
+    body('assetId').notEmpty().withMessage('Valid asset ID is required'),
   ]),
   asyncHandler(async (req, res) => {
     const data = CreateSemanticMappingSchema.parse(req.body);
@@ -242,7 +242,7 @@ glossaryRouter.get(
 glossaryRouter.get(
   '/mappings/asset/:assetId',
   validate([
-    param('assetId').isUUID().withMessage('Valid asset ID is required'),
+    param('assetId').notEmpty().withMessage('Valid asset ID is required'),
   ]),
   asyncHandler(async (req, res) => {
     const result = await glossaryService.getMappingsForAsset(req.params['assetId']!);

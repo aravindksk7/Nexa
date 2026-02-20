@@ -108,6 +108,25 @@ interface SemanticMapping {
   confidence: number;
 }
 
+interface AssetBusinessTermsResponse {
+  assetId: string;
+  assetName: string;
+  terms: Array<{
+    term: BusinessTerm;
+    mapping: {
+      id: string;
+      businessTermId: string;
+      assetId: string;
+      columnName?: string;
+      mappingType: string;
+      confidence: number;
+      createdById: string;
+      createdAt: string;
+      updatedAt: string;
+    };
+  }>;
+}
+
 interface ImpactedAsset {
   assetId: string;
   assetName: string;
@@ -164,6 +183,7 @@ export default function LineagePage() {
   const [selectedColumn, setSelectedColumn] = useState<string | null>(null);
   const [termDrawerOpen, setTermDrawerOpen] = useState(false);
   const [selectedNodeTerms, setSelectedNodeTerms] = useState<BusinessTerm[]>([]);
+  const [enrichedLineageData, setEnrichedLineageData] = useState<LineageGraph | null>(null);
   const [impactDrawerOpen, setImpactDrawerOpen] = useState(false);
   const [impactAssetId, setImpactAssetId] = useState<string | null>(null);
 
@@ -253,15 +273,15 @@ export default function LineagePage() {
   });
 
   // Query for business terms mappings for an asset
-  const { data: assetBusinessTerms } = useQuery<{ mappings: SemanticMapping[] }>({
+  const { data: assetBusinessTerms } = useQuery<AssetBusinessTermsResponse>({
     queryKey: ['asset-business-terms', selectedAsset],
     queryFn: async () => {
-      if (!selectedAsset) return { mappings: [] };
+      if (!selectedAsset) return { assetId: '', assetName: '', terms: [] };
       try {
-        return await api.get<{ mappings: SemanticMapping[] }>(`/glossary/mappings/asset/${selectedAsset}`);
+        return await api.get<AssetBusinessTermsResponse>(`/glossary/mappings/asset/${selectedAsset}`);
       } catch {
         // Fallback for demo
-        return { mappings: [] };
+        return { assetId: selectedAsset, assetName: '', terms: [] };
       }
     },
     enabled: showBusinessTerms && !!selectedAsset,
@@ -305,6 +325,40 @@ export default function LineagePage() {
     }
   }, [showBusinessTerms]);
 
+  // Merge business terms into lineage nodes
+  useEffect(() => {
+    if (!lineageData) {
+      setEnrichedLineageData(null);
+      return;
+    }
+
+    if (!showBusinessTerms || !assetBusinessTerms?.terms || assetBusinessTerms.terms.length === 0) {
+      setEnrichedLineageData(lineageData);
+      return;
+    }
+
+    // Create a map of assetId to business terms
+    const termsMap = new Map<string, BusinessTerm[]>();
+    assetBusinessTerms.terms.forEach((item: { term: BusinessTerm; mapping: { assetId: string } }) => {
+      const assetId = item.mapping.assetId;
+      if (!termsMap.has(assetId)) {
+        termsMap.set(assetId, []);
+      }
+      termsMap.get(assetId)!.push(item.term);
+    });
+
+    // Enrich nodes with business terms
+    const enrichedNodes = lineageData.nodes.map((node) => ({
+      ...node,
+      businessTerms: termsMap.get(node.id) || [],
+    }));
+
+    setEnrichedLineageData({
+      nodes: enrichedNodes,
+      edges: lineageData.edges,
+    });
+  }, [lineageData, showBusinessTerms, assetBusinessTerms]);
+
   // Zoom control handlers
   const handleZoomIn = useCallback(() => {
     if (zoomRef.current && svgSelectionRef.current) {
@@ -345,7 +399,7 @@ export default function LineagePage() {
 
   // Asset-level D3 visualization
   useEffect(() => {
-    if (lineageView !== 'asset' || !svgRef.current || !containerRef.current || !lineageData) return;
+    if (lineageView !== 'asset' || !svgRef.current || !containerRef.current || !enrichedLineageData) return;
 
     const width = containerRef.current.clientWidth;
     const height = 500;
@@ -389,8 +443,8 @@ export default function LineagePage() {
       .attr('fill', '#94a3b8');
 
     // Prepare data
-    const nodes: D3Node[] = lineageData.nodes.map((n) => ({ ...n }));
-    const links: D3Link[] = lineageData.edges.map((e) => ({
+    const nodes: D3Node[] = enrichedLineageData.nodes.map((n) => ({ ...n }));
+    const links: D3Link[] = enrichedLineageData.edges.map((e) => ({
       source: e.source,
       target: e.target,
       type: e.type,
@@ -476,6 +530,38 @@ export default function LineagePage() {
       .attr('fill', 'rgba(255,255,255,0.8)')
       .attr('font-size', '10px');
 
+    // Business term badges (when showBusinessTerms is enabled)
+    if (showBusinessTerms) {
+      // Badge circle background
+      node
+        .filter((d) => (d.businessTerms?.length ?? 0) > 0)
+        .append('circle')
+        .attr('cx', 50)
+        .attr('cy', -20)
+        .attr('r', 10)
+        .attr('fill', '#f59e0b')
+        .attr('stroke', 'white')
+        .attr('stroke-width', 2);
+
+      // Badge count text
+      node
+        .filter((d) => (d.businessTerms?.length ?? 0) > 0)
+        .append('text')
+        .text((d) => d.businessTerms!.length)
+        .attr('x', 50)
+        .attr('y', -16)
+        .attr('text-anchor', 'middle')
+        .attr('fill', 'white')
+        .attr('font-size', '11px')
+        .attr('font-weight', 700);
+    }
+
+    // Add click handlers to nodes
+    node.on('click', (event, d) => {
+      event.stopPropagation();
+      handleNodeClick(d);
+    });
+
     // Update positions on tick
     simulation.on('tick', () => {
       link
@@ -490,7 +576,7 @@ export default function LineagePage() {
     return () => {
       simulation.stop();
     };
-  }, [lineageView, lineageData, getNodeColor, handleNodeClick, showBusinessTerms, assetBusinessTerms]);
+  }, [lineageView, enrichedLineageData, getNodeColor, handleNodeClick, showBusinessTerms]);
 
   // Column-level D3 visualization
   useEffect(() => {
@@ -934,14 +1020,14 @@ export default function LineagePage() {
         </Paper>
 
         {/* Business Terms Info */}
-        {showBusinessTerms && assetBusinessTerms?.mappings && assetBusinessTerms.mappings.length > 0 && (
+        {showBusinessTerms && assetBusinessTerms?.terms && assetBusinessTerms.terms.length > 0 && (
           <Alert 
             severity="info" 
             sx={{ m: 2 }}
             icon={<BusinessIcon />}
           >
             <Typography variant="body2">
-              {assetBusinessTerms.mappings.length} business term(s) mapped to this asset. 
+              {assetBusinessTerms.terms.length} business term(s) mapped to this asset. 
               Click on nodes with badges to view details.
             </Typography>
           </Alert>

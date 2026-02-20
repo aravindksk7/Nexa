@@ -342,7 +342,7 @@ export type SemanticMapping = z.infer<typeof SemanticMappingSchema>;
 
 export const CreateSemanticMappingSchema = z.object({
   businessTermId: z.string().uuid(),
-  assetId: z.string().uuid(),
+  assetId: z.string().min(1),
   columnName: z.string().optional(),
   mappingType: MappingTypeEnum.default('EXACT'),
   confidence: z.number().min(0).max(1).default(1.0),
