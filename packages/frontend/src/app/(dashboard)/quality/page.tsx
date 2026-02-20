@@ -35,6 +35,7 @@ import {
   Delete as DeleteIcon,
   Edit as EditIcon,
   PlayArrow as RunIcon,
+  Visibility as DetailsIcon,
   CheckCircle as PassIcon,
   Cancel as FailIcon,
   Rule as RuleIcon,
@@ -56,6 +57,12 @@ interface QualityRule {
   createdAt: string;
   lastResult: { passed: boolean; executedAt: string; resultData?: unknown } | null;
   asset?: { id: string; name: string; assetType: string };
+}
+
+interface RunDetails {
+  ruleName: string;
+  ruleType: string;
+  result: { passed: boolean; executedAt: string; resultData?: unknown };
 }
 
 interface Asset {
@@ -84,6 +91,9 @@ export default function QualityPage() {
   const [createDialog, setCreateDialog] = useState(false);
   const [editRule, setEditRule] = useState<QualityRule | null>(null);
   const [runResult, setRunResult] = useState<{ ruleId: string; passed: boolean } | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [runningRuleId, setRunningRuleId] = useState<string | null>(null);
+  const [runDetails, setRunDetails] = useState<RunDetails | null>(null);
 
   const {
     control,
@@ -103,9 +113,9 @@ export default function QualityPage() {
   });
 
   // Fetch all assets (for the dropdown)
-  const { data: assetsData } = useQuery<{ data: Asset[]; pagination: unknown }>({
+  const { data: assetsData, isLoading: assetsLoading } = useQuery<{ data: Asset[]; pagination: unknown }>({
     queryKey: ['assets-list-mini'],
-    queryFn: () => api.get<{ data: Asset[]; pagination: unknown }>('/assets?page=1&limit=200'),
+    queryFn: () => api.get<{ data: Asset[]; pagination: unknown }>('/assets?page=1&pageSize=200'),
   });
 
   // Fetch all quality rules by pulling per-asset rules — backend has no global list endpoint,
@@ -162,9 +172,20 @@ export default function QualityPage() {
 
   const evaluateMutation = useMutation({
     mutationFn: (ruleId: string) => api.post<{ result: { ruleId: string; passed: boolean; executedAt: string } }>(`/quality/rules/${ruleId}/evaluate`),
+    onMutate: (ruleId) => {
+      setRunError(null);
+      setRunningRuleId(ruleId);
+    },
     onSuccess: (data, ruleId) => {
       setRunResult({ ruleId, passed: data.result.passed });
       queryClient.invalidateQueries({ queryKey: ['quality-rules', selectedAssetId] });
+    },
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : 'Failed to run quality rule';
+      setRunError(message);
+    },
+    onSettled: () => {
+      setRunningRuleId(null);
     },
   });
 
@@ -254,7 +275,7 @@ export default function QualityPage() {
                 </TableHead>
                 <TableBody>
                   {overviewData.recentFailures.map(f => (
-                    <TableRow key={f.ruleId} hover>
+                    <TableRow key={`${f.ruleId}-${f.assetId}-${f.executedAt}`} hover>
                       <TableCell>{f.ruleName}</TableCell>
                       <TableCell>{f.assetName}</TableCell>
                       <TableCell><Chip label={f.severity} size="small" color={severityColor(f.severity)} /></TableCell>
@@ -290,80 +311,105 @@ export default function QualityPage() {
           ) : !rulesData?.rules.length ? (
             <Alert severity="info">No quality rules defined for this asset yet.</Alert>
           ) : (
-            <TableContainer component={Paper} variant="outlined">
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 600 }}>Name</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Severity</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Last Run</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {rulesData!.rules.map(rule => (
-                    <TableRow key={rule.id} hover>
-                      <TableCell>
-                        <Box>
-                          <Typography variant="body2" fontWeight={500}>{rule.name}</Typography>
-                          {rule.description && <Typography variant="caption" color="text.secondary">{rule.description}</Typography>}
-                        </Box>
-                      </TableCell>
-                      <TableCell><Chip label={rule.ruleType.replace(/_/g, ' ')} size="small" variant="outlined" /></TableCell>
-                      <TableCell><Chip label={rule.severity} size="small" color={severityColor(rule.severity)} /></TableCell>
-                      <TableCell>
-                        {rule.lastResult != null ? (
-                          <Chip
-                            icon={rule.lastResult.passed ? <PassIcon /> : <FailIcon />}
-                            label={rule.lastResult.passed ? 'PASSED' : 'FAILED'}
-                            size="small"
-                            color={rule.lastResult.passed ? 'success' : 'error'}
-                          />
-                        ) : (
-                          <Chip label="Never run" size="small" variant="outlined" />
-                        )}
-                        {runResult?.ruleId === rule.id && (
-                          <Chip
-                            label={runResult.passed ? 'PASSED' : 'FAILED'}
-                            size="small"
-                            color={runResult.passed ? 'success' : 'error'}
-                            sx={{ ml: 1 }}
-                          />
-                        )}
-                      </TableCell>
-                      <TableCell>{rule.lastResult?.executedAt ? formatDistanceToNow(rule.lastResult.executedAt) : '—'}</TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', gap: 0.5 }}>
-                          <Tooltip title="Run now">
-                            <IconButton size="small" color="success"
-                              onClick={() => { setRunResult(null); evaluateMutation.mutate(rule.id); }}
-                              disabled={evaluateMutation.isPending}
-                            >
-                              <RunIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Edit rule">
-                            <IconButton size="small" onClick={() => openEdit(rule)}>
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Delete rule">
-                            <IconButton size="small" color="error"
-                              onClick={() => { if (confirm(`Delete rule "${rule.name}"?`)) deleteMutation.mutate(rule.id); }}
-                              disabled={deleteMutation.isPending}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      </TableCell>
+            <>
+              {runError && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {runError}
+                </Alert>
+              )}
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Name</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Type</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Severity</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Last Run</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Actions</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                  </TableHead>
+                  <TableBody>
+                    {rulesData!.rules.map(rule => (
+                      <TableRow key={rule.id} hover>
+                        <TableCell>
+                          <Box>
+                            <Typography variant="body2" fontWeight={500}>{rule.name}</Typography>
+                            {rule.description && <Typography variant="caption" color="text.secondary">{rule.description}</Typography>}
+                          </Box>
+                        </TableCell>
+                        <TableCell><Chip label={rule.ruleType.replace(/_/g, ' ')} size="small" variant="outlined" /></TableCell>
+                        <TableCell><Chip label={rule.severity} size="small" color={severityColor(rule.severity)} /></TableCell>
+                        <TableCell>
+                          {rule.lastResult != null ? (
+                            <Chip
+                              icon={rule.lastResult.passed ? <PassIcon /> : <FailIcon />}
+                              label={rule.lastResult.passed ? 'PASSED' : 'FAILED'}
+                              size="small"
+                              color={rule.lastResult.passed ? 'success' : 'error'}
+                            />
+                          ) : (
+                            <Chip label="Never run" size="small" variant="outlined" />
+                          )}
+                          {runResult?.ruleId === rule.id && (
+                            <Chip
+                              label={runResult.passed ? 'PASSED' : 'FAILED'}
+                              size="small"
+                              color={runResult.passed ? 'success' : 'error'}
+                              sx={{ ml: 1 }}
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell>{rule.lastResult?.executedAt ? formatDistanceToNow(rule.lastResult.executedAt) : '—'}</TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', gap: 0.5 }}>
+                            <Tooltip title="Run now">
+                              <IconButton size="small" color="success"
+                                onClick={() => { setRunResult(null); evaluateMutation.mutate(rule.id); }}
+                                disabled={Boolean(runningRuleId)}
+                              >
+                                {runningRuleId === rule.id ? <CircularProgress size={16} /> : <RunIcon fontSize="small" />}
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="View last run details">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => {
+                                    if (!rule.lastResult) return;
+                                    setRunDetails({
+                                      ruleName: rule.name,
+                                      ruleType: rule.ruleType,
+                                      result: rule.lastResult,
+                                    });
+                                  }}
+                                  disabled={!rule.lastResult}
+                                >
+                                  <DetailsIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip title="Edit rule">
+                              <IconButton size="small" onClick={() => openEdit(rule)}>
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete rule">
+                              <IconButton size="small" color="error"
+                                onClick={() => { if (confirm(`Delete rule "${rule.name}"?`)) deleteMutation.mutate(rule.id); }}
+                                disabled={deleteMutation.isPending}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </>
           )}
         </CardContent>
       </Card>
@@ -378,8 +424,14 @@ export default function QualityPage() {
             <Controller name="assetId" control={control} rules={{ required: true }} render={({ field }) => (
               <FormControl fullWidth size="small" error={!!errors.assetId}>
                 <InputLabel>Asset *</InputLabel>
-                <Select {...field} label="Asset *">
-                  {assetsData?.data.map(a => <MenuItem key={a.id} value={a.id}>{a.name} ({a.assetType})</MenuItem>)}
+                <Select {...field} label="Asset *" disabled={assetsLoading}>
+                  {assetsLoading ? (
+                    <MenuItem value="">Loading assets...</MenuItem>
+                  ) : !assetsData?.data || assetsData.data.length === 0 ? (
+                    <MenuItem value="">No assets available</MenuItem>
+                  ) : (
+                    assetsData.data.map(a => <MenuItem key={a.id} value={a.id}>{a.name} ({a.assetType})</MenuItem>)
+                  )}
                 </Select>
               </FormControl>
             )} />
@@ -460,6 +512,35 @@ export default function QualityPage() {
             <Button type="submit" variant="contained" disabled={updateMutation.isPending}>Save</Button>
           </DialogActions>
         </form>
+      </Dialog>
+
+      {/* Run Details Dialog */}
+      <Dialog open={!!runDetails} onClose={() => setRunDetails(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Run Details — {runDetails?.ruleName}</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 2 }}>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <Chip label={runDetails?.ruleType.replace(/_/g, ' ')} size="small" variant="outlined" />
+            <Chip
+              label={runDetails?.result.passed ? 'PASSED' : 'FAILED'}
+              size="small"
+              color={runDetails?.result.passed ? 'success' : 'error'}
+            />
+          </Box>
+          <Typography variant="body2" color="text.secondary">
+            Executed {runDetails?.result.executedAt ? formatDistanceToNow(runDetails.result.executedAt) : ''}
+          </Typography>
+          <TextField
+            label="Result Data"
+            value={JSON.stringify(runDetails?.result.resultData ?? {}, null, 2)}
+            multiline
+            minRows={8}
+            fullWidth
+            InputProps={{ readOnly: true }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRunDetails(null)}>Close</Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

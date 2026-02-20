@@ -185,11 +185,15 @@ export default function AssetDetailPage({ params }: AssetDetailPageProps) {
     enabled: tabValue === 3,
   });
 
-  const { data: compareData, isLoading: compareLoading } = useQuery<{ changes: VersionChange[]; version1: AssetVersion; version2: AssetVersion }>({
+  const { data: compareData, isLoading: compareLoading } = useQuery<{ 
+    comparison: { changes: VersionChange[]; version1: AssetVersion; version2: AssetVersion } 
+  }>({
     queryKey: ['asset-compare', id, compareV1, compareV2],
     queryFn: () => api.get(`/assets/${id}/versions/${compareV1}/compare/${compareV2}`),
     enabled: doCompare && compareV1 !== '' && compareV2 !== '',
   });
+
+  const comparisonData = compareData?.comparison;
 
   const { data: relData, isLoading: relLoading } = useQuery<{ relationships: AssetRelationship[] }>({
     queryKey: ['asset-relationships', id],
@@ -582,12 +586,12 @@ export default function AssetDetailPage({ params }: AssetDetailPageProps) {
                         {doCompare && <Button size="small" onClick={() => { setDoCompare(false); setCompareV1(''); setCompareV2(''); }}>Clear</Button>}
                       </Box>
 
-                      {doCompare && compareData && (
+                      {doCompare && comparisonData && (
                         <Box sx={{ mb: 3 }}>
                           <Typography variant="subtitle2" fontWeight={600} gutterBottom>
                             Changes between v{compareV1} → v{compareV2}
                           </Typography>
-                          {compareData.changes.length === 0 ? (
+                          {comparisonData.changes.length === 0 ? (
                             <Alert severity="info">No differences found between these versions.</Alert>
                           ) : (
                             <TableContainer component={Paper} variant="outlined">
@@ -600,7 +604,7 @@ export default function AssetDetailPage({ params }: AssetDetailPageProps) {
                                   </TableRow>
                                 </TableHead>
                                 <TableBody>
-                                  {compareData.changes.map(c => (
+                                  {comparisonData.changes.map(c => (
                                     <TableRow key={c.field}>
                                       <TableCell><Typography fontWeight={500}>{c.field}</Typography></TableCell>
                                       <TableCell sx={{ color: 'error.main' }}><Box component="pre" sx={{ m: 0, fontSize: '0.75rem', whiteSpace: 'pre-wrap' }}>{JSON.stringify(c.oldValue, null, 2)}</Box></TableCell>

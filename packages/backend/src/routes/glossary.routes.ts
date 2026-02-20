@@ -261,3 +261,17 @@ glossaryRouter.delete(
     res.status(204).send();
   })
 );
+
+// GET /api/v1/glossary/business-lineage/:termId - Get business lineage for a term
+glossaryRouter.get(
+  '/business-lineage/:termId',
+  validate([
+    param('termId').isUUID().withMessage('Valid business term ID is required'),
+    query('depth').optional().isInt({ min: 1, max: 10 }).withMessage('Depth must be between 1 and 10'),
+  ]),
+  asyncHandler(async (req, res) => {
+    const depth = req.query['depth'] ? parseInt(req.query['depth'] as string) : 3;
+    const graph = await glossaryService.getBusinessLineage(req.params['termId']!, depth);
+    res.json(graph);
+  })
+);

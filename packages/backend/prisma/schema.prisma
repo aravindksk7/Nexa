@@ -456,7 +456,9 @@ model DataConnection {
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
   // Relations
-  connectionAssets ConnectionAsset[]
+  connectionAssets      ConnectionAsset[]
+  schemaExplorations    SchemaExploration[]
+  syncHistories         SyncHistory[]
 
   @@index([name])
   @@index([connectionType])
@@ -488,6 +490,44 @@ enum ConnectionType {
   SNOWFLAKE
   BIGQUERY
   REDSHIFT
+}
+
+model SchemaExploration {
+  id              String   @id @default(uuid())
+  connectionId    String   @map("connection_id")
+  databaseCount   Int      @map("database_count")
+  tableCount      Int      @map("table_count")
+  columnCount     Int      @map("column_count")
+  schemaData      Json     @map("schema_data") // Full schema structure for reference
+  exploredAt      DateTime @map("explored_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // Relations
+  connection DataConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
+  @@index([exploredAt])
+  @@map("schema_explorations")
+}
+
+model SyncHistory {
+  id                    String   @id @default(uuid())
+  connectionId          String   @map("connection_id")
+  assetsCreatedCount    Int      @default(0) @map("assets_created_count")
+  assetsUpdatedCount    Int      @default(0) @map("assets_updated_count")
+  assetFailedCount      Int      @default(0) @map("asset_failed_count")
+  syncType              String   @default("INCREMENTAL") @map("sync_type") // FULL or INCREMENTAL
+  status                String   @default("SUCCESS") @map("status") // SUCCESS, PARTIAL_SUCCESS, FAILED
+  errorMessage          String?  @map("error_message")
+  syncedAt              DateTime @map("synced_at")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  // Relations
+  connection DataConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
+  @@index([syncedAt])
+  @@map("sync_histories")
 }
 
 // =====================
@@ -643,6 +683,37 @@ enum NotificationType {
   WORKFLOW_ACTION
   ASSET_UPDATE
   SYSTEM
+}
+
+// =====================
+// SSO/LDAP Configuration
+// =====================
+
+model SSOConfiguration {
+  id              String        @id @default(uuid())
+  provider        String        // oauth2, saml, ldap
+  name            String
+  enabled         Boolean       @default(false)
+  clientId        String?       @map("client_id")
+  clientSecret    String?       @map("client_secret")
+  discoveryUrl    String?       @map("discovery_url")
+  ldapServer      String?       @map("ldap_server")
+  ldapPort        Int?          @map("ldap_port")
+  ldapBaseDN      String?       @map("ldap_base_dn")
+  ldapBindDN      String?       @map("ldap_bind_dn")
+  ldapBindPassword String?      @map("ldap_bind_password")
+  ldapUserFilter  String?       @map("ldap_user_filter")
+  samlMetadataUrl String?       @map("saml_metadata_url")
+  samlCert        String?       @map("saml_cert")
+  samlPrivateKey  String?       @map("saml_private_key")
+  customConfig    Json?         @map("custom_config")
+  testResult      Json?         @map("test_result")
+  lastTestedAt    DateTime?     @map("last_tested_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  @@unique([provider, name])
+  @@map("sso_configurations")
 }
 
 // =====================

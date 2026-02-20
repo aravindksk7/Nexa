@@ -2,7 +2,7 @@
 
 import { createTheme } from '@mui/material/styles';
 
-export const theme = createTheme({
+export const lightTheme = createTheme({
   palette: {
     mode: 'light',
     primary: {
@@ -132,3 +132,137 @@ export const theme = createTheme({
     },
   },
 });
+
+export const darkTheme = createTheme({
+  palette: {
+    mode: 'dark',
+    primary: {
+      main: '#0ea5e9',
+      light: '#38bdf8',
+      dark: '#0369a1',
+      contrastText: '#ffffff',
+    },
+    secondary: {
+      main: '#94a3b8',
+      light: '#cbd5e1',
+      dark: '#64748b',
+      contrastText: '#000000',
+    },
+    error: {
+      main: '#f87171',
+      light: '#fca5a5',
+      dark: '#dc2626',
+    },
+    warning: {
+      main: '#fbbf24',
+      light: '#fcd34d',
+      dark: '#d97706',
+    },
+    success: {
+      main: '#4ade80',
+      light: '#86efac',
+      dark: '#16a34a',
+    },
+    info: {
+      main: '#60a5fa',
+      light: '#93c5fd',
+      dark: '#2563eb',
+    },
+    background: {
+      default: '#0f172a',
+      paper: '#1e293b',
+    },
+    text: {
+      primary: '#f8fafc',
+      secondary: '#cbd5e1',
+    },
+    divider: '#334155',
+  },
+  typography: {
+    fontFamily: '"Inter", "system-ui", "sans-serif"',
+    h1: {
+      fontSize: '2.5rem',
+      fontWeight: 700,
+      lineHeight: 1.2,
+    },
+    h2: {
+      fontSize: '2rem',
+      fontWeight: 600,
+      lineHeight: 1.3,
+    },
+    h3: {
+      fontSize: '1.5rem',
+      fontWeight: 600,
+      lineHeight: 1.4,
+    },
+    h4: {
+      fontSize: '1.25rem',
+      fontWeight: 600,
+      lineHeight: 1.4,
+    },
+    h5: {
+      fontSize: '1rem',
+      fontWeight: 600,
+      lineHeight: 1.5,
+    },
+    h6: {
+      fontSize: '0.875rem',
+      fontWeight: 600,
+      lineHeight: 1.5,
+    },
+    body1: {
+      fontSize: '1rem',
+      lineHeight: 1.5,
+    },
+    body2: {
+      fontSize: '0.875rem',
+      lineHeight: 1.5,
+    },
+  },
+  shape: {
+    borderRadius: 8,
+  },
+  components: {
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          textTransform: 'none',
+          fontWeight: 500,
+        },
+      },
+    },
+    MuiCard: {
+      styleOverrides: {
+        root: {
+          boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.3)',
+          border: '1px solid #334155',
+        },
+      },
+    },
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.3)',
+        },
+      },
+    },
+    MuiTableCell: {
+      styleOverrides: {
+        head: {
+          fontWeight: 600,
+          backgroundColor: '#1e293b',
+        },
+      },
+    },
+    MuiChip: {
+      styleOverrides: {
+        root: {
+          fontWeight: 500,
+        },
+      },
+    },
+  },
+});
+
+// Legacy export for backward compatibility
+export const theme = lightTheme;

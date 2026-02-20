@@ -4,15 +4,17 @@ An open-source Data Management Platform built with TypeScript/Node.js, providing
 
 ## Features
 
-- **Metadata Catalog**: Register and catalog data assets with comprehensive metadata management
-- **Data Lineage**: Track data flow from source systems through transformations
-- **Lineage Visualization**: Interactive graph visualization of data dependencies
-- **Impact Analysis**: Assess downstream effects of changes to data assets
-- **Search & Discovery**: Full-text search across all metadata
-- **Data Quality**: Define and monitor data quality rules
-- **Governance Workflows**: Define and execute governance processes
-- **Data Connectors**: Connect to PostgreSQL, MySQL, SQL Server, and more
-- **File Support**: Upload and parse CSV and Excel files
+- **Metadata Catalog**: Asset CRUD, metadata versioning, schema history, preview and profiling
+- **Lineage (Asset + Column + Business)**: OpenLineage ingestion, SQL parsing, upstream/downstream traversal, impact analysis
+- **Lineage Visualization**: D3-based interactive graph with direction/depth controls and business overlays
+- **Business Glossary**: Domains, terms, semantic mappings, and derived business-term lineage
+- **Data Quality**: Rules, evaluations, quality history, and quality overview metrics
+- **Connections**: PostgreSQL/MySQL/SQL Server connections, schema exploration, metadata extraction, sync history
+- **Data Sampler**: Live table sampling (`FIRST_N` / `RANDOM_N`) with SQL preview + CSV export in UI
+- **Governance Workflows**: Workflow definition, triggering, and instance step approvals/rejections
+- **SSO Admin**: OAuth2/SAML/LDAP configuration management, test, enable/disable
+- **Search & Discovery**: Full-text and global search across assets
+- **Dashboard**: Aggregated platform KPIs (`/api/v1/dashboard/overview`) with quality summaries
 
 ## Tech Stack
 
@@ -77,7 +79,31 @@ An open-source Data Management Platform built with TypeScript/Node.js, providing
    npm run dev
    ```
 
-The frontend will be available at `http://localhost:3000` and the API at `http://localhost:3001`.
+The frontend will be available at `http://localhost:3000` and the API at `http://localhost:3001/api/v1`.
+
+## Documentation
+
+- User Guide: `docs/USER_GUIDE.md`
+- Comprehensive Test Report: `COMPREHENSIVE_TEST_REPORT.md`
+
+## API Modules
+
+Primary REST modules (all under `/api/v1`):
+
+- `/auth`
+- `/assets`
+- `/lineage`
+- `/lineage/columns`
+- `/glossary`
+- `/connections`
+- `/quality`
+- `/workflows`
+- `/sso`
+- `/dashboard`
+- `/search`
+- `/files`
+- `/relationships`
+- `/notifications`
 
 ## Project Structure
 

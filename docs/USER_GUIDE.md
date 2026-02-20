@@ -38,6 +38,7 @@
    - [Adding a Connection](#adding-a-connection)
    - [Testing a Connection](#testing-a-connection)
    - [Schema Exploration](#schema-exploration)
+   - [Data Sampler](#data-sampler)
    - [Metadata Extraction](#metadata-extraction)
 8. [File Upload](#8-file-upload)
    - [Uploading a File](#uploading-a-file)
@@ -56,9 +57,11 @@
     - [Security (Change Password)](#security-change-password)
     - [Notifications](#notifications)
     - [Appearance](#appearance)
-13. [API Reference (Summary)](#13-api-reference-summary)
-14. [Environment Configuration](#14-environment-configuration)
-15. [Troubleshooting & FAQ](#15-troubleshooting--faq)
+13. [Workflows](#13-workflows)
+14. [SSO (Admin)](#14-sso-admin)
+15. [API Reference (Summary)](#15-api-reference-summary)
+16. [Environment Configuration](#16-environment-configuration)
+17. [Troubleshooting & FAQ](#17-troubleshooting--faq)
 
 ---
 
@@ -160,7 +163,8 @@ The Dashboard is the landing page after login. It provides:
 Below the summary cards:
 
 - **Recent Assets** (table) — the most recently created or updated assets with name, type, owner, and last-updated timestamp. Click a row to navigate to the asset detail page.
-- **Quality Overview** (chart) — a donut chart and progress bars showing quality distribution across your assets.
+- **Quality Overview** (chart) — a full-width stacked quality-status bar with overall score summary.
+- **Recent Quality Failures** — recent failed validations surfaced for quick triage.
 
 ---
 
@@ -241,12 +245,13 @@ Every change to an asset's metadata (name, description, type, domain, tags, cust
 
 Navigate to **Lineage** in the left sidebar.
 
-The Lineage page provides an interactive **D3.js force-directed graph** showing how data flows between assets or columns.
+The Lineage page provides an interactive **D3.js force-directed graph** showing live data flow between assets, columns, and business terms.
 
 ### Asset Lineage
 
 1. **Select an asset** using the search/autocomplete field at the top.
-2. The graph renders nodes (assets) and directed edges (data flow).
+2. Choose **Upstream**, **Downstream**, or **Both** and set **Depth**.
+3. The graph renders nodes (assets) and directed edges (data flow) from live backend lineage APIs.
 3. Nodes are **color-coded by type** (TABLE, VIEW, DASHBOARD, etc.) and labeled with the asset name.
 
 ### Column Lineage
@@ -257,6 +262,7 @@ The Lineage page provides an interactive **D3.js force-directed graph** showing 
    - **Transformation Type** (DIRECT, DERIVED, AGGREGATED, FILTERED, JOINED)
    - **Transformation Expression** (e.g., the SQL expression)
    - **Confidence Score** (0–1)
+4. Column options are loaded from live asset schema/profile metadata.
 
 ### Impact Analysis
 
@@ -279,7 +285,7 @@ The Lineage page provides an interactive **D3.js force-directed graph** showing 
 | Control | Action |
 |---------|--------|
 | **Direction Toggle** | Switch between Upstream, Downstream, or Both directions. |
-| **Depth Slider** | Control how many hops deep the lineage graph extends (1–10). |
+| **Depth** | Control how many hops deep the lineage graph extends. |
 | **Zoom In / Out** | Magnify or reduce the graph view. |
 | **Center** | Re-center the graph to fit all nodes. |
 | **Fullscreen** | Toggle fullscreen mode for the graph. |
@@ -374,6 +380,19 @@ Connections allow Nexa to connect to external databases, explore their schemas, 
          └─ ...
    ```
 3. Each table/view shows its columns with data type, nullability, and primary/foreign key indicators.
+
+### Data Sampler
+
+The schema explorer supports table sampling for fast inspection before metadata extraction.
+
+1. In **Explore Schema**, select a table.
+2. Choose:
+   - **Sample Mode**: `FIRST_N` or `RANDOM_N`
+   - **Limit**: number of rows (bounded by API validation)
+3. Click **Preview Sample** to fetch data from `/api/v1/connections/:id/sample`.
+4. Use:
+   - **Copy SQL** — copy generated SQL preview to clipboard
+   - **Export CSV** — download sampled rows as a CSV file
 
 ### Metadata Extraction
 
@@ -543,7 +562,29 @@ Configure notification preferences (UI settings; email delivery requires SMTP co
 
 ---
 
-## 13. API Reference (Summary)
+## 13. Workflows
+
+Navigate to **Workflows** in the left sidebar.
+
+Use this module to define governance workflows and execute approval/review steps.
+
+- Create and list workflow definitions
+- Trigger workflow instances with context
+- Track instance status (`PENDING`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, `CANCELLED`)
+- Approve/reject workflow steps
+- Cancel in-progress instances
+
+## 14. SSO (Admin)
+
+Admin users can configure SSO providers via backend APIs.
+
+- Supported providers: `oauth2`, `saml`, `ldap`
+- Configuration lifecycle: create, update, test, enable, disable, delete
+- Endpoint family: `/api/v1/sso/*`
+
+> Note: SSO routes are restricted to `ADMIN` role.
+
+## 15. API Reference (Summary)
 
 All API endpoints are prefixed with `/api/v1`. Authentication is required for all endpoints except registration and login; include the JWT token as `Authorization: Bearer <token>`.
 
@@ -581,22 +622,26 @@ All API endpoints are prefixed with `/api/v1`. Authentication is required for al
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/lineage/events` | Ingest an OpenLineage event |
-| POST | `/lineage/parse-sql` | Extract lineage from SQL |
+| POST | `/lineage/sql` | Extract lineage from SQL |
 | POST | `/lineage/edges` | Create a lineage edge |
+| GET | `/lineage/edges/:id` | Get lineage edge by id |
+| PUT | `/lineage/edges/:id` | Update lineage edge |
 | DELETE | `/lineage/edges/:id` | Delete a lineage edge |
-| GET | `/lineage/upstream/:assetId` | Get upstream lineage (BFS) |
-| GET | `/lineage/downstream/:assetId` | Get downstream lineage (BFS) |
-| GET | `/lineage/both/:assetId` | Get full lineage graph |
-| GET | `/lineage/:assetId/impact` | Impact analysis |
+| GET | `/lineage/:id/upstream` | Get upstream lineage |
+| GET | `/lineage/:id/downstream` | Get downstream lineage |
+| GET | `/lineage/:id/impact` | Impact analysis |
 
 ### Column Lineage
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/lineage/columns/edges` | Create column lineage edge |
-| DELETE | `/lineage/columns/edges/:id` | Delete column lineage edge |
-| GET | `/lineage/columns/upstream/:assetId/:column` | Upstream column lineage |
-| GET | `/lineage/columns/downstream/:assetId/:column` | Downstream column lineage |
+| POST | `/lineage/columns` | Create column lineage edge |
+| GET | `/lineage/columns/:id` | Get column lineage edge by id |
+| PUT | `/lineage/columns/:id` | Update column lineage edge |
+| DELETE | `/lineage/columns/:id` | Delete column lineage edge |
+| GET | `/lineage/columns/asset/:assetId` | List column lineage for an asset |
+| GET | `/lineage/columns/:assetId/:column/upstream` | Upstream column lineage |
+| GET | `/lineage/columns/:assetId/:column/downstream` | Downstream column lineage |
 | GET | `/lineage/columns/:assetId/:column/impact` | Column impact analysis |
 | POST | `/lineage/columns/parse-sql` | Parse SQL for column lineage |
 
@@ -604,21 +649,24 @@ All API endpoints are prefixed with `/api/v1`. Authentication is required for al
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/glossary/domains` | List all domains |
-| POST | `/glossary/domains` | Create a domain |
+| GET | `/glossary/domains` | List domains |
+| GET | `/glossary/domains/hierarchy` | Get domain hierarchy |
 | GET | `/glossary/domains/:id` | Get domain details |
-| PUT | `/glossary/domains/:id` | Update a domain |
-| DELETE | `/glossary/domains/:id` | Delete a domain |
-| GET | `/glossary/terms` | List all terms |
-| POST | `/glossary/terms` | Create a term |
+| POST | `/glossary/domains` | Create domain |
+| PUT | `/glossary/domains/:id` | Update domain |
+| DELETE | `/glossary/domains/:id` | Delete domain |
+| GET | `/glossary/terms` | List terms |
 | GET | `/glossary/terms/:id` | Get term details |
-| PUT | `/glossary/terms/:id` | Update a term |
-| DELETE | `/glossary/terms/:id` | Delete a term |
-| POST | `/glossary/terms/:id/deprecate` | Deprecate a term |
-| GET | `/glossary/terms/:id/mappings` | List term mappings |
-| POST | `/glossary/terms/:id/mappings` | Create a mapping |
-| DELETE | `/glossary/mappings/:id` | Delete a mapping |
-| GET | `/glossary/assets/:id/terms` | Get terms for an asset |
+| POST | `/glossary/terms` | Create term |
+| PUT | `/glossary/terms/:id` | Update term |
+| POST | `/glossary/terms/:id/deprecate` | Deprecate term |
+| DELETE | `/glossary/terms/:id` | Delete term |
+| GET | `/glossary/terms/:id/assets` | Get mapped assets for a term |
+| POST | `/glossary/mappings` | Create semantic mapping |
+| GET | `/glossary/mappings/term/:termId` | Get mappings by term |
+| GET | `/glossary/mappings/asset/:assetId` | Get mappings by asset |
+| DELETE | `/glossary/mappings/:id` | Delete mapping |
+| GET | `/glossary/business-lineage/:termId` | Get business lineage graph |
 
 ### Connections
 
@@ -629,9 +677,46 @@ All API endpoints are prefixed with `/api/v1`. Authentication is required for al
 | GET | `/connections/:id` | Get connection details |
 | PUT | `/connections/:id` | Update a connection |
 | DELETE | `/connections/:id` | Delete a connection |
-| POST | `/connections/test` | Test connection parameters |
+| POST | `/connections/:id/test` | Test a saved connection |
 | GET | `/connections/:id/explore` | Explore database schema |
+| GET | `/connections/:id/sample` | Sample table rows (`FIRST_N`/`RANDOM_N`) |
 | POST | `/connections/:id/extract` | Extract metadata into catalog |
+| GET | `/connections/:id/schema-history` | Schema exploration history |
+| GET | `/connections/:id/sync-history` | Sync history |
+| GET | `/connections/:id/sync-info` | Latest sync/exploration summary |
+
+### Dashboard
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/dashboard/overview` | Aggregate dashboard stats |
+
+### Workflows
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/workflows` | List workflows |
+| POST | `/workflows` | Create workflow |
+| GET | `/workflows/:id` | Get workflow |
+| POST | `/workflows/:id/trigger` | Trigger workflow instance |
+| GET | `/workflows/instances/list` | List workflow instances |
+| GET | `/workflows/instances/:instanceId` | Get workflow instance |
+| POST | `/workflows/instances/:instanceId/steps/:stepId/approve` | Approve workflow step |
+| POST | `/workflows/instances/:instanceId/steps/:stepId/reject` | Reject workflow step |
+| POST | `/workflows/instances/:instanceId/cancel` | Cancel workflow instance |
+
+### SSO (Admin)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/sso` | List SSO configurations |
+| GET | `/sso/:id` | Get SSO configuration |
+| POST | `/sso` | Create SSO configuration |
+| PUT | `/sso/:id` | Update SSO configuration |
+| DELETE | `/sso/:id` | Delete SSO configuration |
+| POST | `/sso/:id/test` | Test SSO configuration |
+| POST | `/sso/:id/enable` | Enable configuration |
+| POST | `/sso/:id/disable` | Disable configuration |
 
 ### Files
 
@@ -677,7 +762,7 @@ All API endpoints are prefixed with `/api/v1`. Authentication is required for al
 
 ---
 
-## 14. Environment Configuration
+## 16. Environment Configuration
 
 Copy `.env.example` to `.env` and configure the following variables:
 
@@ -722,7 +807,7 @@ Both containers include health checks and persistent volumes.
 
 ---
 
-## 15. Troubleshooting & FAQ
+## 17. Troubleshooting & FAQ
 
 ### The application is not loading / shows a blank page
 

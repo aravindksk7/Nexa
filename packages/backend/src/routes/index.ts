@@ -11,6 +11,8 @@ import qualityRouter from './quality.routes.js';
 import relationshipRouter from './relationship.routes.js';
 import notificationRouter from './notification.routes.js';
 import workflowRouter from './workflow.routes.js';
+import ssoRouter from './sso.routes.js';
+import dashboardRouter from './dashboard.routes.js';
 
 export const apiRouter = Router();
 
@@ -27,6 +29,8 @@ apiRouter.use('/quality', qualityRouter);
 apiRouter.use('/relationships', relationshipRouter);
 apiRouter.use('/notifications', notificationRouter);
 apiRouter.use('/workflows', workflowRouter);
+apiRouter.use('/sso', ssoRouter);
+apiRouter.use('/dashboard', dashboardRouter);
 
 // API info endpoint
 apiRouter.get('/', (_req: Request, res: Response) => {
@@ -44,6 +48,10 @@ apiRouter.get('/', (_req: Request, res: Response) => {
       search: '/api/v1/search',
       quality: '/api/v1/quality',
       relationships: '/api/v1/relationships',
+      notifications: '/api/v1/notifications',
+      workflows: '/api/v1/workflows',
+      sso: '/api/v1/sso',
+      dashboard: '/api/v1/dashboard',
     },
   });
 });

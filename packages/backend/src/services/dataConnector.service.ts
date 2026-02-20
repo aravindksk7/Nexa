@@ -23,6 +23,29 @@ const logger = createChildLogger('DataConnectorService');
 const ENCRYPTION_KEY = process.env['ENCRYPTION_KEY'] ?? 'default-key-change-in-production!';
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 
+type SampleMode = 'FIRST_N' | 'RANDOM_N';
+
+interface TableSampleInput {
+  database: string;
+  schema?: string;
+  table: string;
+  sampleMode: SampleMode;
+  limit: number;
+}
+
+interface TableSampleResult {
+  database: string;
+  schema?: string;
+  table: string;
+  dialect: 'POSTGRESQL' | 'MYSQL';
+  sqlPreview: string;
+  sampleMode: SampleMode;
+  limit: number;
+  returnedRows: number;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+}
+
 export class DataConnectorService {
   /**
    * Create a new data connection
@@ -70,6 +93,68 @@ export class DataConnectorService {
   }
 
   /**
+   * Update a connection
+   */
+  async updateConnection(connectionId: string, data: any): Promise<DataConnection> {
+    const connection = await prisma.dataConnection.findUnique({
+      where: { id: connectionId },
+    });
+
+    if (!connection) {
+      throw new NotFoundError('Connection', connectionId);
+    }
+
+    let encryptedPassword: string | undefined = connection.encryptedPassword;
+    if (data.password) {
+      encryptedPassword = this.encryptPassword(data.password);
+    }
+
+    const updateData: any = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.connectionType !== undefined) updateData.connectionType = data.connectionType;
+    if (data.host !== undefined) updateData.host = data.host;
+    if (data.port !== undefined) updateData.port = data.port;
+    if (data.database !== undefined) updateData.database = data.database;
+    if (data.username !== undefined) updateData.username = data.username;
+    if (encryptedPassword !== undefined) updateData.encryptedPassword = encryptedPassword;
+    if (data.additionalConfig !== undefined) updateData.additionalConfig = data.additionalConfig;
+
+    const updated = await prisma.dataConnection.update({
+      where: { id: connectionId },
+      data: updateData,
+    });
+
+    logger.info({ connectionId }, 'Connection updated');
+
+    return this.mapConnection(updated);
+  }
+
+  /**
+   * Delete a connection
+   */
+  async deleteConnection(connectionId: string): Promise<void> {
+    const connection = await prisma.dataConnection.findUnique({
+      where: { id: connectionId },
+    });
+
+    if (!connection) {
+      throw new NotFoundError('Connection', connectionId);
+    }
+
+    // Delete any linked assets
+    await prisma.connectionAsset.deleteMany({
+      where: { connectionId },
+    });
+
+    await prisma.dataConnection.delete({
+      where: { id: connectionId },
+    });
+
+    logger.info({ connectionId }, 'Connection deleted');
+  }
+
+  /**
    * List all connections
    */
   async listConnections(): Promise<DataConnection[]> {
@@ -77,7 +162,7 @@ export class DataConnectorService {
       orderBy: { name: 'asc' },
     });
 
-    return connections.map(c => this.mapConnection(c));
+    return connections.map((connection: any) => this.mapConnection(connection));
   }
 
   /**
@@ -152,15 +237,97 @@ export class DataConnectorService {
       ? this.decryptPassword(connection.encryptedPassword)
       : undefined;
 
-    switch (connection.connectionType) {
-      case 'POSTGRESQL':
-        return this.explorePostgresSchema(connection, password);
-      case 'MYSQL':
-        return this.exploreMySqlSchema(connection, password);
-      case 'SQLSERVER':
-        return this.exploreSqlServerSchema(connection, password);
-      default:
-        throw new ValidationError(`Unsupported connection type: ${connection.connectionType}`);
+    let schema: SourceSchema;
+
+    try {
+      switch (connection.connectionType) {
+        case 'POSTGRESQL':
+          schema = await this.explorePostgresSchema(connection, password);
+          break;
+        case 'MYSQL':
+          schema = await this.exploreMySqlSchema(connection, password);
+          break;
+        case 'SQLSERVER':
+          schema = await this.exploreSqlServerSchema(connection, password);
+          break;
+        default:
+          throw new ValidationError(`Unsupported connection type: ${connection.connectionType}`);
+      }
+
+      // Record this schema exploration
+      await this.recordSchemaExploration(connectionId, schema);
+
+      return schema;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async sampleTableData(connectionId: string, input: TableSampleInput): Promise<TableSampleResult> {
+    const connection = await prisma.dataConnection.findUnique({
+      where: { id: connectionId },
+    });
+
+    if (!connection) {
+      throw new NotFoundError('Connection', connectionId);
+    }
+
+    const safeLimit = Math.min(Math.max(input.limit, 1), 5000);
+    const password = connection.encryptedPassword
+      ? this.decryptPassword(connection.encryptedPassword)
+      : undefined;
+
+    if (connection.connectionType === 'SQLSERVER') {
+      throw new ValidationError('Sampling preview is currently supported for PostgreSQL and MySQL connections');
+    }
+
+    if (connection.connectionType === 'POSTGRESQL') {
+      return this.samplePostgresTable(connection, password, {
+        ...input,
+        limit: safeLimit,
+      });
+    }
+
+    if (connection.connectionType === 'MYSQL') {
+      return this.sampleMySqlTable(connection, password, {
+        ...input,
+        limit: safeLimit,
+      });
+    }
+
+    throw new ValidationError(`Unsupported connection type: ${connection.connectionType}`);
+  }
+
+  /**
+   * Record schema exploration for audit trail
+   */
+  private async recordSchemaExploration(connectionId: string, schema: SourceSchema): Promise<void> {
+    try {
+      let totalTables = 0;
+      let totalColumns = 0;
+
+      for (const db of schema.databases) {
+        totalTables += db.tables.length;
+        for (const table of db.tables) {
+          totalColumns += table.columns?.length || 0;
+        }
+      }
+
+      await prisma.schemaExploration.create({
+        data: {
+          connectionId,
+          databaseCount: schema.databases.length,
+          tableCount: totalTables,
+          columnCount: totalColumns,
+          schemaData: schema as any,
+          exploredAt: new Date(),
+        },
+      });
+
+      logger.info({ connectionId, databases: schema.databases.length, tables: totalTables }, 'Schema exploration recorded');
+    } catch (error) {
+      logger.warn({ connectionId, error }, 'Failed to record schema exploration');
+      // Don't throw - this shouldn't fail the entire operation
     }
   }
 
@@ -260,7 +427,110 @@ export class DataConnectorService {
 
     logger.info({ connectionId, assetsCreated, assetsUpdated }, 'Metadata extracted');
 
+    // Record sync history
+    await this.recordSyncHistory(connectionId, assetsCreated, assetsUpdated, incremental);
+
     return { assetsCreated, assetsUpdated };
+  }
+
+  /**
+   * Record metadata sync for audit trail
+   */
+  private async recordSyncHistory(
+    connectionId: string,
+    assetsCreated: number,
+    assetsUpdated: number,
+    incremental: boolean
+  ): Promise<void> {
+    try {
+      await prisma.syncHistory.create({
+        data: {
+          connectionId,
+          assetsCreatedCount: assetsCreated,
+          assetsUpdatedCount: assetsUpdated,
+          syncType: incremental ? 'INCREMENTAL' : 'FULL',
+          status: 'SUCCESS',
+          syncedAt: new Date(),
+        },
+      });
+
+      logger.info({ connectionId, assetsCreated, assetsUpdated }, 'Sync history recorded');
+    } catch (error) {
+      logger.warn({ connectionId, error }, 'Failed to record sync history');
+      // Don't throw - this shouldn't fail the entire operation
+    }
+  }
+
+  /**
+   * Get schema exploration history for a connection
+   */
+  async getSchemaExplorationHistory(connectionId: string, limit: number = 20): Promise<any[]> {
+    return await prisma.schemaExploration.findMany({
+      where: { connectionId },
+      orderBy: { exploredAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        databaseCount: true,
+        tableCount: true,
+        columnCount: true,
+        exploredAt: true,
+      },
+    });
+  }
+
+  /**
+   * Get sync history for a connection
+   */
+  async getSyncHistory(connectionId: string, limit: number = 20): Promise<any[]> {
+    return await prisma.syncHistory.findMany({
+      where: { connectionId },
+      orderBy: { syncedAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        assetsCreatedCount: true,
+        assetsUpdatedCount: true,
+        assetFailedCount: true,
+        syncType: true,
+        status: true,
+        errorMessage: true,
+        syncedAt: true,
+      },
+    });
+  }
+
+  /**
+   * Get latest sync information for a connection
+   */
+  async getLatestSyncInfo(connectionId: string): Promise<any> {
+    const latestSync = await prisma.syncHistory.findFirst({
+      where: { connectionId },
+      orderBy: { syncedAt: 'desc' },
+      select: {
+        assetsCreatedCount: true,
+        assetsUpdatedCount: true,
+        syncType: true,
+        status: true,
+        syncedAt: true,
+      },
+    });
+
+    const latestExplore = await prisma.schemaExploration.findFirst({
+      where: { connectionId },
+      orderBy: { exploredAt: 'desc' },
+      select: {
+        databaseCount: true,
+        tableCount: true,
+        columnCount: true,
+        exploredAt: true,
+      },
+    });
+
+    return {
+      lastSync: latestSync,
+      lastExploration: latestExplore,
+    };
   }
 
   // =====================
@@ -372,15 +642,12 @@ export class DataConnectorService {
     connection: { host: string; port: number; database: string | null; username: string | null },
     password?: string
   ): Promise<ConnectionTestResult> {
-    const pool = await createMySqlPool({
-      host: connection.host,
-      port: connection.port,
-      database: connection.database ?? undefined,
-      user: connection.username ?? undefined,
-      password,
-      connectionLimit: 1,
-      connectTimeout: 5000,
-    });
+    const pool = await createMySqlPool(
+      this.buildMySqlPoolConfig(connection, password, connection.database ?? undefined, {
+        connectionLimit: 1,
+        connectTimeout: 5000,
+      })
+    );
 
     try {
       await pool.query('SELECT 1');
@@ -394,13 +661,9 @@ export class DataConnectorService {
     connection: { host: string; port: number; database: string | null; username: string | null },
     password?: string
   ): Promise<SourceSchema> {
-    const pool = await createMySqlPool({
-      host: connection.host,
-      port: connection.port,
-      database: connection.database ?? undefined,
-      user: connection.username ?? undefined,
-      password,
-    });
+    const pool = await createMySqlPool(
+      this.buildMySqlPoolConfig(connection, password, connection.database ?? undefined)
+    );
 
     try {
       const [tables] = await pool.query<any[]>(`
@@ -548,6 +811,108 @@ export class DataConnectorService {
     if (type.includes('array')) return 'array';
 
     return 'string';
+  }
+
+  private async samplePostgresTable(
+    connection: { host: string; port: number; database: string | null; username: string | null },
+    password: string | undefined,
+    input: TableSampleInput
+  ): Promise<TableSampleResult> {
+    const pool = new PgPool({
+      host: connection.host,
+      port: connection.port,
+      database: connection.database ?? 'postgres',
+      user: connection.username ?? undefined,
+      password,
+    });
+
+    const schemaName = input.schema ?? 'public';
+    const tableRef = `${this.quotePostgresIdentifier(schemaName)}.${this.quotePostgresIdentifier(input.table)}`;
+    const orderClause = input.sampleMode === 'RANDOM_N' ? 'ORDER BY RANDOM()' : '';
+    const sql = `SELECT * FROM ${tableRef} ${orderClause} LIMIT $1`;
+
+    try {
+      const result = await pool.query(sql, [input.limit]);
+      const firstRow = result.rows[0] as Record<string, unknown> | undefined;
+      const columns = firstRow ? Object.keys(firstRow) : [];
+
+      return {
+        database: input.database,
+        schema: schemaName,
+        table: input.table,
+        dialect: 'POSTGRESQL',
+        sqlPreview: sql.replace('$1', String(input.limit)),
+        sampleMode: input.sampleMode,
+        limit: input.limit,
+        returnedRows: result.rows.length,
+        columns,
+        rows: result.rows as Array<Record<string, unknown>>,
+      };
+    } finally {
+      await pool.end();
+    }
+  }
+
+  private async sampleMySqlTable(
+    connection: { host: string; port: number; database: string | null; username: string | null },
+    password: string | undefined,
+    input: TableSampleInput
+  ): Promise<TableSampleResult> {
+    const pool = await createMySqlPool(
+      this.buildMySqlPoolConfig(connection, password, connection.database ?? input.database, {
+        connectionLimit: 1,
+      })
+    );
+
+    const tableRef = `${this.quoteMySqlIdentifier(input.database)}.${this.quoteMySqlIdentifier(input.table)}`;
+    const orderClause = input.sampleMode === 'RANDOM_N' ? 'ORDER BY RAND()' : '';
+    const sql = `SELECT * FROM ${tableRef} ${orderClause} LIMIT ?`;
+
+    try {
+      const [rows] = await pool.query(sql, [input.limit]);
+      const castRows = rows as Array<Record<string, unknown>>;
+      const firstRow = castRows[0];
+      const columns = firstRow ? Object.keys(firstRow) : [];
+
+      return {
+        database: input.database,
+        ...(input.schema ? { schema: input.schema } : {}),
+        table: input.table,
+        dialect: 'MYSQL',
+        sqlPreview: sql.replace('?', String(input.limit)),
+        sampleMode: input.sampleMode,
+        limit: input.limit,
+        returnedRows: castRows.length,
+        columns,
+        rows: castRows,
+      };
+    } finally {
+      await pool.end();
+    }
+  }
+
+  private buildMySqlPoolConfig(
+    connection: { host: string; port: number; database: string | null; username: string | null },
+    password?: string,
+    database?: string,
+    extra: Record<string, number> = {}
+  ): Record<string, unknown> {
+    return {
+      host: connection.host,
+      port: connection.port,
+      ...(database ? { database } : {}),
+      ...(connection.username ? { user: connection.username } : {}),
+      ...(password ? { password } : {}),
+      ...extra,
+    };
+  }
+
+  private quotePostgresIdentifier(value: string): string {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+
+  private quoteMySqlIdentifier(value: string): string {
+    return `\`${value.replace(/`/g, '``')}\``;
   }
 
   private mapConnection(connection: {

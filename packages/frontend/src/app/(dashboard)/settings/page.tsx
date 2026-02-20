@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -25,6 +25,7 @@ import {
 } from '@mui/icons-material';
 import { useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/providers/AuthProvider';
+import { useThemeMode } from '@/providers/ThemeProvider';
 import { api } from '@/lib/api';
 
 interface TabPanelProps {
@@ -50,9 +51,11 @@ function TabPanel(props: TabPanelProps) {
 
 export default function SettingsPage() {
   const { user, refreshUser } = useAuth();
+  const { isDarkMode, setDarkMode } = useThemeMode();
   const [tabValue, setTabValue] = useState(0);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
 
   // Profile settings state
   const [firstName, setFirstName] = useState(user?.firstName || '');
@@ -70,8 +73,11 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
 
   // Appearance settings state
-  const [darkMode, setDarkMode] = useState(false);
   const [compactView, setCompactView] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
@@ -332,15 +338,17 @@ export default function SettingsPage() {
                 Theme
               </Typography>
 
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={darkMode}
-                    onChange={(e) => setDarkMode(e.target.checked)}
-                  />
-                }
-                label="Dark mode"
-              />
+              {isMounted && (
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={isDarkMode}
+                      onChange={(e) => setDarkMode(e.target.checked)}
+                    />
+                  }
+                  label="Dark mode"
+                />
+              )}
 
               <Divider sx={{ my: 2 }} />
 

@@ -15,6 +15,12 @@ import type {
   AssetType,
 } from '../models/index.js';
 
+interface UpdateLineageEdgeInput {
+  transformationType?: string;
+  transformationLogic?: string;
+  metadata?: Record<string, unknown>;
+}
+
 const logger = createChildLogger('LineageService');
 
 export class LineageService {
@@ -157,6 +163,58 @@ export class LineageService {
     );
 
     return this.mapLineageEdge(edge);
+  }
+
+  /**
+   * Get lineage edge by ID
+   */
+  async getLineageEdge(edgeId: string): Promise<LineageEdge | null> {
+    const edge = await prisma.lineageEdge.findUnique({ where: { id: edgeId } });
+    return edge ? this.mapLineageEdge(edge) : null;
+  }
+
+  /**
+   * Update lineage edge metadata/transformation
+   */
+  async updateLineageEdge(edgeId: string, data: UpdateLineageEdgeInput): Promise<LineageEdge> {
+    const existingEdge = await prisma.lineageEdge.findUnique({ where: { id: edgeId } });
+    if (!existingEdge) {
+      throw new NotFoundError('Lineage edge', edgeId);
+    }
+
+    const updateData: Record<string, unknown> = {};
+    if (data.transformationType !== undefined) {
+      updateData['transformationType'] = data.transformationType;
+    }
+    if (data.transformationLogic !== undefined) {
+      updateData['transformationLogic'] = data.transformationLogic;
+    }
+    if (data.metadata !== undefined) {
+      updateData['metadata'] = data.metadata;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      throw new ValidationError('At least one field is required for update');
+    }
+
+    const edge = await prisma.lineageEdge.update({
+      where: { id: edgeId },
+      data: updateData as Record<string, unknown>,
+    });
+
+    return this.mapLineageEdge(edge);
+  }
+
+  /**
+   * Delete lineage edge by ID
+   */
+  async deleteLineageEdge(edgeId: string): Promise<void> {
+    const existingEdge = await prisma.lineageEdge.findUnique({ where: { id: edgeId } });
+    if (!existingEdge) {
+      throw new NotFoundError('Lineage edge', edgeId);
+    }
+
+    await prisma.lineageEdge.delete({ where: { id: edgeId } });
   }
 
   /**

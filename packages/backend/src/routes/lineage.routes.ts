@@ -35,8 +35,8 @@ lineageRouter.post(
 lineageRouter.post(
   '/edges',
   validate([
-    body('sourceAssetId').isUUID().withMessage('Valid source asset ID is required'),
-    body('targetAssetId').isUUID().withMessage('Valid target asset ID is required'),
+    body('sourceAssetId').notEmpty().withMessage('Valid source asset ID is required'),
+    body('targetAssetId').notEmpty().withMessage('Valid target asset ID is required'),
     body('transformationType').notEmpty().withMessage('Transformation type is required'),
   ]),
   asyncHandler(async (req, res) => {
@@ -46,11 +46,65 @@ lineageRouter.post(
   })
 );
 
+// GET /api/v1/lineage/edges/:id - Get lineage edge by ID
+lineageRouter.get(
+  '/edges/:id',
+  validate([
+    param('id').isUUID().withMessage('Valid lineage edge ID is required'),
+  ]),
+  asyncHandler(async (req, res) => {
+    const edge = await lineageService.getLineageEdge(req.params['id']!);
+    if (!edge) {
+      res.status(404).json({ error: 'Lineage edge not found' });
+      return;
+    }
+    res.json({ edge });
+  })
+);
+
+// PUT /api/v1/lineage/edges/:id - Update lineage edge
+lineageRouter.put(
+  '/edges/:id',
+  validate([
+    param('id').isUUID().withMessage('Valid lineage edge ID is required'),
+    body('transformationType').optional().notEmpty().withMessage('Transformation type cannot be empty'),
+    body('transformationLogic').optional().isString().withMessage('Transformation logic must be a string'),
+    body('metadata').optional().isObject().withMessage('Metadata must be an object'),
+  ]),
+  asyncHandler(async (req, res) => {
+    const updateData: { transformationType?: string; transformationLogic?: string; metadata?: Record<string, unknown> } = {};
+    if (req.body['transformationType'] !== undefined) {
+      updateData.transformationType = req.body['transformationType'] as string;
+    }
+    if (req.body['transformationLogic'] !== undefined) {
+      updateData.transformationLogic = req.body['transformationLogic'] as string;
+    }
+    if (req.body['metadata'] !== undefined) {
+      updateData.metadata = req.body['metadata'] as Record<string, unknown>;
+    }
+
+    const edge = await lineageService.updateLineageEdge(req.params['id']!, updateData);
+    res.json({ edge });
+  })
+);
+
+// DELETE /api/v1/lineage/edges/:id - Delete lineage edge
+lineageRouter.delete(
+  '/edges/:id',
+  validate([
+    param('id').isUUID().withMessage('Valid lineage edge ID is required'),
+  ]),
+  asyncHandler(async (req, res) => {
+    await lineageService.deleteLineageEdge(req.params['id']!);
+    res.status(204).send();
+  })
+);
+
 // GET /api/v1/lineage/:id/upstream - Get upstream lineage
 lineageRouter.get(
   '/:id/upstream',
   validate([
-    param('id').isUUID().withMessage('Valid asset ID is required'),
+    param('id').notEmpty().withMessage('Valid asset ID is required'),
     query('depth').optional().isInt({ min: 1, max: 50 }).withMessage('Depth must be between 1 and 50'),
   ]),
   asyncHandler(async (req, res) => {
@@ -64,7 +118,7 @@ lineageRouter.get(
 lineageRouter.get(
   '/:id/downstream',
   validate([
-    param('id').isUUID().withMessage('Valid asset ID is required'),
+    param('id').notEmpty().withMessage('Valid asset ID is required'),
     query('depth').optional().isInt({ min: 1, max: 50 }).withMessage('Depth must be between 1 and 50'),
   ]),
   asyncHandler(async (req, res) => {
@@ -78,7 +132,7 @@ lineageRouter.get(
 lineageRouter.get(
   '/:id/impact',
   validate([
-    param('id').isUUID().withMessage('Valid asset ID is required'),
+    param('id').notEmpty().withMessage('Valid asset ID is required'),
     query('maxDepth').optional().isInt({ min: 1, max: 100 }).withMessage('Max depth must be between 1 and 100'),
   ]),
   asyncHandler(async (req, res) => {

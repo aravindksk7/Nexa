@@ -23,6 +23,13 @@ import {
   CircularProgress,
   Menu,
   ListItemIcon,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TableContainer,
+  Paper,
 } from '@mui/material';
 import { SimpleTreeView } from '@mui/x-tree-view/SimpleTreeView';
 import { TreeItem } from '@mui/x-tree-view/TreeItem';
@@ -86,6 +93,25 @@ interface SourceSchema {
   databases: DatabaseSchema[];
 }
 
+interface SamplePreviewTarget {
+  database: string;
+  schema?: string;
+  table: string;
+}
+
+interface SamplePreview {
+  database: string;
+  schema?: string;
+  table: string;
+  dialect: 'POSTGRESQL' | 'MYSQL';
+  sqlPreview: string;
+  sampleMode: 'FIRST_N' | 'RANDOM_N';
+  limit: number;
+  returnedRows: number;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+}
+
 const CONNECTION_TYPES = [
   { value: 'POSTGRESQL', label: 'PostgreSQL', icon: '🐘' },
   { value: 'MYSQL', label: 'MySQL', icon: '🐬' },
@@ -101,9 +127,22 @@ export default function ConnectionsPage() {
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [exploreDialogOpen, setExploreDialogOpen] = useState(false);
   const [exploringConnection, setExploringConnection] = useState<Connection | null>(null);
+  const [sampleMode, setSampleMode] = useState<'FIRST_N' | 'RANDOM_N'>('FIRST_N');
+  const [sampleLimit, setSampleLimit] = useState(100);
+  const [selectedSampleTarget, setSelectedSampleTarget] = useState<SamplePreviewTarget | null>(null);
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [historyConnection, setHistoryConnection] = useState<Connection | null>(null);
 
   const { control, handleSubmit, reset, watch, formState: { errors } } = useForm({
-    defaultValues: {
+    defaultValues: editingConnection ? {
+      name: editingConnection.name,
+      type: editingConnection.type as 'POSTGRESQL' | 'MYSQL' | 'SQLSERVER',
+      host: editingConnection.host,
+      port: editingConnection.port,
+      database: editingConnection.database || '',
+      username: editingConnection.username || '',
+      password: '',
+    } : {
       name: '',
       type: 'POSTGRESQL' as const,
       host: '',
@@ -133,6 +172,14 @@ export default function ConnectionsPage() {
 
   const createMutation = useMutation({
     mutationFn: (data: object) => api.post('/connections', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['connections'] });
+      handleCloseDialog();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (data: { id: string; payload: object }) => api.put(`/connections/${data.id}`, data.payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['connections'] });
       handleCloseDialog();
@@ -171,8 +218,70 @@ export default function ConnectionsPage() {
     enabled: !!exploringConnection && exploreDialogOpen,
   });
 
+  const { data: samplePreview, isLoading: sampleLoading } = useQuery<SamplePreview>({
+    queryKey: ['connection-table-sample', exploringConnection?.id, selectedSampleTarget, sampleMode, sampleLimit],
+    queryFn: async () => {
+      const database = encodeURIComponent(selectedSampleTarget!.database);
+      const table = encodeURIComponent(selectedSampleTarget!.table);
+      const schemaPart = selectedSampleTarget!.schema
+        ? `&schema=${encodeURIComponent(selectedSampleTarget!.schema)}`
+        : '';
+
+      const response = await api.get<{ preview: SamplePreview }>(
+        `/connections/${exploringConnection!.id}/sample?database=${database}&table=${table}${schemaPart}&sampleMode=${sampleMode}&limit=${sampleLimit}`
+      );
+
+      return response.preview;
+    },
+    enabled: !!exploringConnection && !!selectedSampleTarget && exploreDialogOpen,
+  });
+
+  // Sync info query (last sync and exploration info)
+  const { data: syncInfo } = useQuery({
+    queryKey: ['connection-sync-info', selectedConnection?.id],
+    queryFn: () => api.get(`/connections/${selectedConnection!.id}/sync-info`),
+    enabled: !!selectedConnection,
+  });
+
+  // Sync history query for card display
+  const { data: syncHistoryData } = useQuery({
+    queryKey: ['connection-sync-history', selectedConnection?.id],
+    queryFn: () => api.get(`/connections/${selectedConnection!.id}/sync-history`),
+    enabled: !!selectedConnection,
+  });
+
+  // Schema exploration history query
+  const { data: schemaHistory } = useQuery({
+    queryKey: ['connection-schema-history', selectedConnection?.id],
+    queryFn: () => api.get(`/connections/${selectedConnection!.id}/schema-history`),
+    enabled: !!selectedConnection,
+  });
+
+  // Detailed sync history for history dialog
+  const { data: syncHistory } = useQuery({
+    queryKey: ['connection-sync-history-detail', historyConnection?.id],
+    queryFn: () => api.get(`/connections/${historyConnection!.id}/sync-history`),
+    enabled: !!historyConnection && historyDialogOpen,
+  });
+
+  // Detailed schema exploration history for history dialog
+  const { data: schemaExplorationHistory } = useQuery({
+    queryKey: ['connection-schema-history-detail', historyConnection?.id],
+    queryFn: () => api.get(`/connections/${historyConnection!.id}/schema-history`),
+    enabled: !!historyConnection && historyDialogOpen,
+  });
+
+  const handleShowHistory = (connection: Connection) => {
+    setHistoryConnection(connection);
+    setHistoryDialogOpen(true);
+    handleMenuClose();
+  };
+
   const handleExploreSchema = (connection: Connection) => {
     setExploringConnection(connection);
+    setSelectedSampleTarget(null);
+    setSampleMode('FIRST_N');
+    setSampleLimit(100);
     setExploreDialogOpen(true);
     handleMenuClose();
   };
@@ -198,7 +307,15 @@ export default function ConnectionsPage() {
   const onSubmit = (data: Record<string, unknown>) => {
     // Backend expects connectionType instead of type
     const { type, ...rest } = data;
-    createMutation.mutate({ ...rest, connectionType: type });
+    const payload = { ...rest, connectionType: type };
+
+    if (editingConnection) {
+      // Update existing connection
+      updateMutation.mutate({ id: editingConnection.id, payload });
+    } else {
+      // Create new connection
+      createMutation.mutate(payload);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -234,6 +351,37 @@ export default function ConnectionsPage() {
       default:
         return 5432;
     }
+  };
+
+  const handleExportSampleCsv = () => {
+    if (!samplePreview || samplePreview.columns.length === 0) return;
+
+    const escapeCsv = (value: unknown) => {
+      if (value === null || value === undefined) return '';
+      const str = String(value);
+      return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+    };
+
+    const header = samplePreview.columns.map(escapeCsv).join(',');
+    const lines = samplePreview.rows.map((row) =>
+      samplePreview.columns.map((column) => escapeCsv(row[column])).join(',')
+    );
+
+    const csv = [header, ...lines].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${samplePreview.table}_${samplePreview.sampleMode.toLowerCase()}_${samplePreview.returnedRows}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopySampleSql = async () => {
+    if (!samplePreview?.sqlPreview) return;
+    await navigator.clipboard.writeText(samplePreview.sqlPreview);
   };
 
   return (
@@ -298,6 +446,38 @@ export default function ConnectionsPage() {
                     </Typography>
                   </Box>
 
+                  {/* Sync Info Section */}
+                  {selectedConnection?.id === connection.id && (syncInfo as any)?.lastSync && (
+                    <Box sx={{ mb: 2, p: 1.5, bgcolor: 'grey.50', borderRadius: 1 }}>
+                      {(syncInfo as any).lastSync && (
+                        <Box sx={{ mb: 1 }}>
+                          <Typography variant="caption" fontWeight={600} color="text.secondary">
+                            Last Sync
+                          </Typography>
+                          <Typography variant="body2">
+                            Created: {(syncInfo as any).lastSync.assetsCreatedCount} | Updated: {(syncInfo as any).lastSync.assetsUpdatedCount}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {formatDistanceToNow((syncInfo as any).lastSync.syncedAt)} ago
+                          </Typography>
+                        </Box>
+                      )}
+                      {(syncInfo as any).lastExploration && (
+                        <Box>
+                          <Typography variant="caption" fontWeight={600} color="text.secondary">
+                            Last Exploration
+                          </Typography>
+                          <Typography variant="body2">
+                            {(syncInfo as any).lastExploration.databaseCount} DB | {(syncInfo as any).lastExploration.tableCount} Tables | {(syncInfo as any).lastExploration.columnCount} Columns
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {formatDistanceToNow((syncInfo as any).lastExploration.exploredAt)} ago
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  )}
+
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Chip
                       icon={getStatusIcon(connection.status)}
@@ -341,6 +521,16 @@ export default function ConnectionsPage() {
             <SyncIcon fontSize="small" />
           </ListItemIcon>
           Sync Metadata
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (selectedConnection) handleShowHistory(selectedConnection);
+          }}
+        >
+          <ListItemIcon>
+            <SyncIcon fontSize="small" />
+          </ListItemIcon>
+          View History
         </MenuItem>
         <MenuItem
           onClick={() => {
@@ -506,8 +696,15 @@ export default function ConnectionsPage() {
             >
               {testMutation.isPending ? 'Testing...' : 'Test Connection'}
             </Button>
-            <Button type="submit" variant="contained" disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Saving...' : 'Save'}
+            <Button 
+              type="submit" 
+              variant="contained" 
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {createMutation.isPending || updateMutation.isPending 
+                ? 'Saving...' 
+                : editingConnection ? 'Update' : 'Save'
+              }
             </Button>
           </DialogActions>
         </form>
@@ -533,84 +730,188 @@ export default function ConnectionsPage() {
               <Typography sx={{ ml: 2 }}>Loading schema...</Typography>
             </Box>
           ) : schemaData ? (
-            <Box sx={{ mt: 1 }}>
-              <SimpleTreeView
-                aria-label="schema explorer"
-                sx={{ 
-                  height: 400, 
-                  flexGrow: 1, 
-                  overflowY: 'auto',
-                  '& .MuiTreeItem-content': {
-                    py: 0.5,
-                  }
-                }}
-              >
-                {schemaData.databases.map((db: DatabaseSchema) => (
-                  <TreeItem 
-                    key={`db-${db.name}`} 
-                    itemId={`db-${db.name}`} 
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
-                        <FolderIcon fontSize="small" color="primary" />
-                        <Typography variant="body2" fontWeight={500}>{db.name}</Typography>
-                        <Chip label={`${db.tables.length} tables`} size="small" variant="outlined" />
-                      </Box>
-                    }
-                  >
-                    {db.tables.map((table: TableSchema) => (
-                      <TreeItem 
-                        key={`table-${db.name}-${table.name}`} 
-                        itemId={`table-${db.name}-${table.name}`}
-                        label={
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
-                            <TableIcon fontSize="small" color="action" />
-                            <Typography variant="body2">{table.name}</Typography>
-                            {table.type && (
-                              <Chip 
-                                label={table.type} 
-                                size="small" 
-                                variant="outlined"
-                                color={table.type === 'VIEW' ? 'info' : 'default'}
-                              />
-                            )}
-                            <Typography variant="caption" color="text.secondary">
-                              ({table.columns.length} columns)
-                            </Typography>
-                          </Box>
-                        }
-                      >
-                        {table.columns.map((col: ColumnSchema) => (
-                          <TreeItem 
-                            key={`col-${db.name}-${table.name}-${col.name}`} 
-                            itemId={`col-${db.name}-${table.name}-${col.name}`}
+            <Grid container spacing={2} sx={{ mt: 0.5 }}>
+              <Grid item xs={12} md={5}>
+                <SimpleTreeView
+                  aria-label="schema explorer"
+                  sx={{
+                    height: 460,
+                    overflowY: 'auto',
+                    border: 1,
+                    borderColor: 'divider',
+                    borderRadius: 1,
+                    p: 1,
+                    '& .MuiTreeItem-content': {
+                      py: 0.5,
+                    },
+                  }}
+                >
+                  {schemaData.databases.map((db: DatabaseSchema) => (
+                    <TreeItem
+                      key={`db-${db.name}`}
+                      itemId={`db-${db.name}`}
+                      label={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
+                          <FolderIcon fontSize="small" color="primary" />
+                          <Typography variant="body2" fontWeight={500}>{db.name}</Typography>
+                          <Chip label={`${db.tables.length} tables`} size="small" variant="outlined" />
+                        </Box>
+                      }
+                    >
+                      {db.tables.map((table: TableSchema) => {
+                        const isSelected =
+                          selectedSampleTarget?.database === db.name &&
+                          selectedSampleTarget?.schema === table.schema &&
+                          selectedSampleTarget?.table === table.name;
+
+                        return (
+                          <TreeItem
+                            key={`table-${db.name}-${table.name}`}
+                            itemId={`table-${db.name}-${table.name}`}
                             label={
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
-                                <ColumnIcon fontSize="small" sx={{ color: 'grey.500' }} />
-                                <Typography variant="body2">{col.name}</Typography>
-                                <Chip 
-                                  label={col.dataType} 
-                                  size="small" 
-                                  sx={{ fontSize: '0.7rem', height: 20 }}
-                                />
-                                {col.primaryKey && (
-                                  <Chip label="PK" size="small" color="warning" sx={{ fontSize: '0.65rem', height: 18 }} />
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 1,
+                                  py: 0.5,
+                                  px: 0.5,
+                                  borderRadius: 1,
+                                  bgcolor: isSelected ? 'action.selected' : 'transparent',
+                                  cursor: 'pointer',
+                                }}
+                                onClick={() => setSelectedSampleTarget({ database: db.name, schema: table.schema, table: table.name })}
+                              >
+                                <TableIcon fontSize="small" color="action" />
+                                <Typography variant="body2">{table.name}</Typography>
+                                {table.type && (
+                                  <Chip
+                                    label={table.type}
+                                    size="small"
+                                    variant="outlined"
+                                    color={table.type === 'VIEW' ? 'info' : 'default'}
+                                  />
                                 )}
-                                {col.foreignKey && (
-                                  <Chip label="FK" size="small" color="secondary" sx={{ fontSize: '0.65rem', height: 18 }} />
-                                )}
-                                {!col.nullable && (
-                                  <Chip label="NOT NULL" size="small" variant="outlined" sx={{ fontSize: '0.65rem', height: 18 }} />
-                                )}
+                                <Typography variant="caption" color="text.secondary">
+                                  ({table.columns.length} columns)
+                                </Typography>
                               </Box>
                             }
-                          />
-                        ))}
-                      </TreeItem>
-                    ))}
-                  </TreeItem>
-                ))}
-              </SimpleTreeView>
-            </Box>
+                          >
+                            {table.columns.map((col: ColumnSchema) => (
+                              <TreeItem
+                                key={`col-${db.name}-${table.name}-${col.name}`}
+                                itemId={`col-${db.name}-${table.name}-${col.name}`}
+                                label={
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
+                                    <ColumnIcon fontSize="small" sx={{ color: 'grey.500' }} />
+                                    <Typography variant="body2">{col.name}</Typography>
+                                    <Chip
+                                      label={col.dataType}
+                                      size="small"
+                                      sx={{ fontSize: '0.7rem', height: 20 }}
+                                    />
+                                  </Box>
+                                }
+                              />
+                            ))}
+                          </TreeItem>
+                        );
+                      })}
+                    </TreeItem>
+                  ))}
+                </SimpleTreeView>
+              </Grid>
+
+              <Grid item xs={12} md={7}>
+                <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5 }}>
+                  <FormControl size="small" sx={{ minWidth: 160 }}>
+                    <InputLabel>Sample Mode</InputLabel>
+                    <Select
+                      value={sampleMode}
+                      label="Sample Mode"
+                      onChange={(e) => setSampleMode(e.target.value as 'FIRST_N' | 'RANDOM_N')}
+                    >
+                      <MenuItem value="FIRST_N">First N rows</MenuItem>
+                      <MenuItem value="RANDOM_N">Random N rows</MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  <TextField
+                    size="small"
+                    label="Rows"
+                    type="number"
+                    value={sampleLimit}
+                    onChange={(e) => setSampleLimit(Math.min(Math.max(parseInt(e.target.value || '100', 10), 1), 5000))}
+                    sx={{ width: 120 }}
+                    slotProps={{ htmlInput: { min: 1, max: 5000 } }}
+                  />
+                </Box>
+
+                {!selectedSampleTarget ? (
+                  <Alert severity="info">Select a table from the schema tree to preview sampled rows.</Alert>
+                ) : sampleLoading ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', py: 3 }}>
+                    <CircularProgress size={20} />
+                    <Typography sx={{ ml: 1.5 }}>Sampling rows...</Typography>
+                  </Box>
+                ) : samplePreview ? (
+                  <>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        {samplePreview.returnedRows} row(s) returned from {samplePreview.database}
+                        {samplePreview.schema ? `.${samplePreview.schema}` : ''}.{samplePreview.table}
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button size="small" variant="outlined" onClick={handleCopySampleSql}>
+                          Copy SQL
+                        </Button>
+                        <Button size="small" variant="outlined" onClick={handleExportSampleCsv}>
+                          Export CSV
+                        </Button>
+                      </Box>
+                    </Box>
+
+                    <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 380 }}>
+                      <Table size="small" stickyHeader>
+                        <TableHead>
+                          <TableRow>
+                            {samplePreview.columns.map((column) => (
+                              <TableCell key={column}>{column}</TableCell>
+                            ))}
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {samplePreview.rows.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={Math.max(samplePreview.columns.length, 1)}>
+                                <Typography variant="body2" color="text.secondary">
+                                  No rows returned.
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            samplePreview.rows.map((row, index) => (
+                              <TableRow key={`sample-row-${index}`}>
+                                {samplePreview.columns.map((column) => (
+                                  <TableCell key={`${index}-${column}`}>
+                                    {row[column] === null || row[column] === undefined
+                                      ? '-'
+                                      : String(row[column])}
+                                  </TableCell>
+                                ))}
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </>
+                ) : (
+                  <Alert severity="warning">Could not load sample preview for this table.</Alert>
+                )}
+              </Grid>
+            </Grid>
           ) : (
             <Alert severity="info">
               No schema information available. Try syncing the connection first.
@@ -618,7 +919,105 @@ export default function ConnectionsPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setExploreDialogOpen(false)}>Close</Button>
+          <Button
+            onClick={() => {
+              setExploreDialogOpen(false);
+              setSelectedSampleTarget(null);
+            }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Sync & Exploration History Dialog */}
+      <Dialog
+        open={historyDialogOpen}
+        onClose={() => setHistoryDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <SyncIcon />
+            Sync & Exploration History - {historyConnection?.name}
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              Metadata Sync History
+            </Typography>
+            {((syncHistory as any)?.history?.length ?? 0) > 0 ? (
+              <Box sx={{ overflowY: 'auto', maxHeight: 300, mb: 3 }}>
+                {((syncHistory as any).history || []).map((sync: any) => (
+                  <Card key={sync.id} sx={{ mb: 1, p: 1.5 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                      <Box>
+                        <Typography variant="body2" fontWeight={600}>
+                          {sync.syncType === 'FULL' ? '🔄 Full Sync' : '📝 Incremental Sync'}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Created: {sync.assetsCreatedCount} | Updated: {sync.assetsUpdatedCount}
+                        </Typography>
+                        {sync.assetFailedCount > 0 && (
+                          <Typography variant="caption" color="error">
+                            Failed: {sync.assetFailedCount}
+                          </Typography>
+                        )}
+                      </Box>
+                      <Box sx={{ textAlign: 'right' }}>
+                        <Chip
+                          label={sync.status}
+                          size="small"
+                          color={sync.status === 'SUCCESS' ? 'success' : 'warning'}
+                        />
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                          {formatDistanceToNow(sync.syncedAt)} ago
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Card>
+                ))}
+              </Box>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                No sync history available.
+              </Typography>
+            )}
+
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              Schema Exploration History
+            </Typography>
+            {((schemaExplorationHistory as any)?.history?.length ?? 0) > 0 ? (
+              <Box sx={{ overflowY: 'auto', maxHeight: 300 }}>
+                {((schemaExplorationHistory as any).history || []).map((exploration: any) => (
+                  <Card key={exploration.id} sx={{ mb: 1, p: 1.5 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                      <Box>
+                        <Typography variant="body2" fontWeight={600}>
+                          🔍 Schema Explored
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {exploration.databaseCount} Databases | {exploration.tableCount} Tables | {exploration.columnCount} Columns
+                        </Typography>
+                      </Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'right' }}>
+                        {formatDistanceToNow(exploration.exploredAt)} ago
+                      </Typography>
+                    </Box>
+                  </Card>
+                ))}
+              </Box>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                No exploration history available.
+              </Typography>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setHistoryDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>

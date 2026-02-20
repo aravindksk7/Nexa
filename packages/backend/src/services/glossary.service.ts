@@ -9,7 +9,11 @@ import {
   SemanticMapping,
   UpdateBusinessTerm,
   AssetWithBusinessTerms,
+  BusinessLineageGraph,
+  BusinessLineageNode,
+  BusinessLineageEdge,
 } from '../models/index.js';
+import { lineageService } from './lineage.service.js';
 
 class GlossaryService {
   // =====================
@@ -385,6 +389,191 @@ class GlossaryService {
       }
       return result;
     });
+  }
+
+  /**
+   * Get business lineage graph showing how business terms flow through the organization
+   * Derives term-to-term relationships from asset lineage and semantic mappings
+   */
+  async getBusinessLineage(termId: string, depth: number = 3): Promise<BusinessLineageGraph> {
+    // Get the source term
+    const sourceTerm = await prisma.businessTerm.findUnique({
+      where: { id: termId },
+    });
+    if (!sourceTerm) {
+      throw new Error('Business term not found');
+    }
+
+    // Get all assets mapped to the source term
+    const sourceMappings = await prisma.semanticMapping.findMany({
+      where: { businessTermId: termId },
+      include: {
+        asset: {
+          select: { id: true, name: true, assetType: true },
+        },
+      },
+    });
+
+    // Track all discovered terms and edges
+    const termsMap = new Map<string, BusinessLineageNode>();
+    const edgesMap = new Map<string, BusinessLineageEdge>();
+
+    // Add source term to the graph
+    const sourceMappingCount = sourceMappings.length;
+    termsMap.set(termId, {
+      id: sourceTerm.id,
+      name: sourceTerm.name,
+      definition: sourceTerm.definition,
+      domainId: sourceTerm.domainId,
+      status: sourceTerm.status as 'DRAFT' | 'APPROVED' | 'DEPRECATED',
+      assetCount: sourceMappingCount,
+    });
+
+    // For each mapped asset, get its lineage (both directions)
+    for (const mapping of sourceMappings) {
+      const assetId = mapping.asset.id;
+
+      try {
+        // Get upstream lineage
+        const upstreamGraph = await lineageService.getUpstreamLineage(assetId, depth);
+        await this.processLineageForBusinessTerms(
+          termId,
+          upstreamGraph.nodes,
+          upstreamGraph.edges,
+          termsMap,
+          edgesMap
+        );
+
+        // Get downstream lineage
+        const downstreamGraph = await lineageService.getDownstreamLineage(assetId, depth);
+        await this.processLineageForBusinessTerms(
+          termId,
+          downstreamGraph.nodes,
+          downstreamGraph.edges,
+          termsMap,
+          edgesMap
+        );
+      } catch (error) {
+        // Skip if lineage not found for this asset
+        console.error(`Failed to get lineage for asset ${assetId}:`, error);
+      }
+    }
+
+    return {
+      nodes: Array.from(termsMap.values()),
+      edges: Array.from(edgesMap.values()),
+    };
+  }
+
+  /**
+   * Helper method to process lineage nodes and find business term relationships
+   */
+  private async processLineageForBusinessTerms(
+    sourceTermId: string,
+    nodes: Array<{ id: string; name: string; assetType: string }>,
+    edges: Array<{ source: string; target: string; type?: string; transformationType?: string }>,
+    termsMap: Map<string, BusinessLineageNode>,
+    edgesMap: Map<string, BusinessLineageEdge>
+  ): Promise<void> {
+    // Get all business terms for assets in this lineage
+    const assetIds = nodes.map((n) => n.id);
+    const mappings = await prisma.semanticMapping.findMany({
+      where: {
+        assetId: { in: assetIds },
+      },
+      include: {
+        businessTerm: true,
+        asset: {
+          select: { id: true, name: true, assetType: true },
+        },
+      },
+    });
+
+    // Build a map of assetId -> business terms
+    const assetToTermsMap = new Map<string, Array<{ term: BusinessTerm; assetId: string; assetName: string; assetType: string }>>();
+    for (const mapping of mappings) {
+      const termData = {
+        term: this.mapTerm(mapping.businessTerm),
+        assetId: mapping.asset.id,
+        assetName: mapping.asset.name,
+        assetType: mapping.asset.assetType,
+      };
+
+      if (!assetToTermsMap.has(mapping.assetId)) {
+        assetToTermsMap.set(mapping.assetId, []);
+      }
+      assetToTermsMap.get(mapping.assetId)!.push(termData);
+
+      // Add term to nodes map if not already present
+      if (!termsMap.has(mapping.businessTermId)) {
+        const mappingCount = await prisma.semanticMapping.count({
+          where: { businessTermId: mapping.businessTermId },
+        });
+
+        termsMap.set(mapping.businessTermId, {
+          id: mapping.businessTerm.id,
+          name: mapping.businessTerm.name,
+          definition: mapping.businessTerm.definition,
+          domainId: mapping.businessTerm.domainId,
+          status: mapping.businessTerm.status as 'DRAFT' | 'APPROVED' | 'DEPRECATED',
+          assetCount: mappingCount,
+        });
+      }
+    }
+
+    // Process asset lineage edges to create business term edges
+    for (const edge of edges) {
+      const sourceTerms = assetToTermsMap.get(edge.source) || [];
+      const targetTerms = assetToTermsMap.get(edge.target) || [];
+
+      // Create edges for all term combinations connected by this asset edge
+      for (const sourceTerm of sourceTerms) {
+        for (const targetTerm of targetTerms) {
+          // Skip self-loops
+          if (sourceTerm.term.id === targetTerm.term.id) continue;
+
+          // Create or update edge
+          const edgeKey = `${sourceTerm.term.id}->${targetTerm.term.id}`;
+          const existingEdge = edgesMap.get(edgeKey);
+
+          if (existingEdge) {
+            // Add this asset path if not already present
+            const pathExists = existingEdge.assetPath.some(
+              (p) => p.assetId === sourceTerm.assetId && existingEdge.assetPath.some((p2) => p2.assetId === targetTerm.assetId)
+            );
+
+            if (!pathExists) {
+              existingEdge.assetPath.push({
+                assetId: sourceTerm.assetId,
+                assetName: sourceTerm.assetName,
+                assetType: sourceTerm.assetType,
+              });
+              // Increase strength based on number of paths
+              existingEdge.strength = Math.min(1, existingEdge.strength + 0.2);
+            }
+          } else {
+            // Create new edge
+            edgesMap.set(edgeKey, {
+              source: sourceTerm.term.id,
+              target: targetTerm.term.id,
+              assetPath: [
+                {
+                  assetId: sourceTerm.assetId,
+                  assetName: sourceTerm.assetName,
+                  assetType: sourceTerm.assetType,
+                },
+                {
+                  assetId: targetTerm.assetId,
+                  assetName: targetTerm.assetName,
+                  assetType: targetTerm.assetType,
+                },
+              ],
+              strength: 0.5,
+            });
+          }
+        }
+      }
+    }
   }
 
   // =====================

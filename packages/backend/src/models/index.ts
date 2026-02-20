@@ -130,8 +130,8 @@ export type CreateSchema = z.infer<typeof CreateSchemaSchema>;
 
 export const LineageEdgeSchema = z.object({
   id: z.string().uuid(),
-  sourceAssetId: z.string().uuid(),
-  targetAssetId: z.string().uuid(),
+  sourceAssetId: z.string().min(1),
+  targetAssetId: z.string().min(1),
   transformationType: z.string(),
   transformationLogic: z.string().optional(),
   metadata: z.record(z.any()).optional(),
@@ -141,8 +141,8 @@ export const LineageEdgeSchema = z.object({
 export type LineageEdge = z.infer<typeof LineageEdgeSchema>;
 
 export const CreateLineageEdgeSchema = z.object({
-  sourceAssetId: z.string().uuid(),
-  targetAssetId: z.string().uuid(),
+  sourceAssetId: z.string().min(1),
+  targetAssetId: z.string().min(1),
   transformationType: z.string(),
   transformationLogic: z.string().optional(),
   metadata: z.record(z.any()).optional(),
@@ -200,9 +200,9 @@ export type ColumnTransformationType = z.infer<typeof ColumnTransformationTypeEn
 
 export const ColumnLineageEdgeSchema = z.object({
   id: z.string().uuid(),
-  sourceAssetId: z.string().uuid(),
+  sourceAssetId: z.string().min(1),
   sourceColumn: z.string(),
-  targetAssetId: z.string().uuid(),
+  targetAssetId: z.string().min(1),
   targetColumn: z.string(),
   transformationType: ColumnTransformationTypeEnum,
   transformationExpression: z.string().optional(),
@@ -215,9 +215,9 @@ export const ColumnLineageEdgeSchema = z.object({
 export type ColumnLineageEdge = z.infer<typeof ColumnLineageEdgeSchema>;
 
 export const CreateColumnLineageEdgeSchema = z.object({
-  sourceAssetId: z.string().uuid(),
+  sourceAssetId: z.string().min(1),
   sourceColumn: z.string().min(1),
-  targetAssetId: z.string().uuid(),
+  targetAssetId: z.string().min(1),
   targetColumn: z.string().min(1),
   transformationType: ColumnTransformationTypeEnum,
   transformationExpression: z.string().optional(),
@@ -367,6 +367,35 @@ export interface AssetWithBusinessTerms {
 }
 
 // =====================
+// Business Lineage Types
+// =====================
+
+export interface BusinessLineageNode {
+  id: string;
+  name: string;
+  definition: string;
+  domainId: string;
+  status: BusinessTermStatus;
+  assetCount: number; // Number of assets mapped to this term
+}
+
+export interface BusinessLineageEdge {
+  source: string; // Source business term ID
+  target: string; // Target business term ID
+  assetPath: Array<{
+    assetId: string;
+    assetName: string;
+    assetType: string;
+  }>; // Technical assets connecting the terms
+  strength: number; // 0-1, based on number of paths / confidence
+}
+
+export interface BusinessLineageGraph {
+  nodes: BusinessLineageNode[];
+  edges: BusinessLineageEdge[];
+}
+
+// =====================
 // Connection Types
 // =====================
 
@@ -412,6 +441,20 @@ export const CreateConnectionSchema = z.object({
 });
 
 export type CreateConnection = z.infer<typeof CreateConnectionSchema>;
+
+export const UpdateConnectionSchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().optional(),
+  connectionType: ConnectionTypeEnum.optional(),
+  host: z.string().optional(),
+  port: z.number().int().positive().optional(),
+  database: z.string().optional(),
+  username: z.string().optional(),
+  password: z.string().optional(),
+  additionalConfig: z.record(z.any()).optional(),
+});
+
+export type UpdateConnection = z.infer<typeof UpdateConnectionSchema>;
 
 export interface ConnectionTestResult {
   success: boolean;

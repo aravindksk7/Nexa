@@ -68,7 +68,7 @@ class ColumnLineageService {
       }
       const updated = await prisma.columnLineageEdge.update({
         where: { id: existingEdge.id },
-        data: updateData as Parameters<typeof prisma.columnLineageEdge.update>[0]['data'],
+        data: updateData as Record<string, unknown>,
       });
       return this.mapColumnLineageEdge(updated);
     }
@@ -92,7 +92,7 @@ class ColumnLineageService {
       createData['metadata'] = data.metadata;
     }
     const edge = await prisma.columnLineageEdge.create({
-      data: createData as Parameters<typeof prisma.columnLineageEdge.create>[0]['data'],
+      data: createData as Record<string, unknown>,
     });
 
     return this.mapColumnLineageEdge(edge);
@@ -109,6 +109,49 @@ class ColumnLineageService {
     await prisma.columnLineageEdge.delete({
       where: { id },
     });
+  }
+
+  async updateColumnLineageEdge(
+    id: string,
+    data: {
+      transformationType?: ColumnTransformationType;
+      transformationExpression?: string;
+      confidence?: number;
+      metadata?: Record<string, unknown>;
+    }
+  ): Promise<ColumnLineageEdge> {
+    const existing = await prisma.columnLineageEdge.findUnique({ where: { id } });
+    if (!existing) {
+      throw new Error('Column lineage edge not found');
+    }
+
+    const updateData: Record<string, unknown> = {};
+    if (data.transformationType !== undefined) {
+      updateData['transformationType'] = data.transformationType;
+    }
+    if (data.transformationExpression !== undefined) {
+      updateData['transformationExpression'] = data.transformationExpression;
+    }
+    if (data.confidence !== undefined) {
+      if (data.confidence < 0 || data.confidence > 1) {
+        throw new Error('Confidence must be between 0 and 1');
+      }
+      updateData['confidence'] = data.confidence;
+    }
+    if (data.metadata !== undefined) {
+      updateData['metadata'] = data.metadata;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      throw new Error('At least one field is required for update');
+    }
+
+    const updated = await prisma.columnLineageEdge.update({
+      where: { id },
+      data: updateData as Record<string, unknown>,
+    });
+
+    return this.mapColumnLineageEdge(updated);
   }
 
   async getColumnLineageForAsset(assetId: string): Promise<ColumnLineageEdge[]> {

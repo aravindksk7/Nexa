@@ -32,8 +32,17 @@ interface Asset {
   assetType: string;
   description?: string;
   domain?: string;
+  ownerId?: string;
   tags: string[];
   customProperties?: Record<string, unknown>;
+}
+
+interface User {
+  id: string;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+  email: string;
 }
 
 interface AssetFormData {
@@ -41,6 +50,7 @@ interface AssetFormData {
   assetType: string;
   description: string;
   domain: string;
+  ownerId: string;
   tags: string[];
 }
 
@@ -58,6 +68,11 @@ export default function AssetEditPage({ params }: AssetEditPageProps) {
     queryFn: () => api.get<{ asset: Asset }>(`/assets/${id}`),
   });
 
+  const { data: usersData } = useQuery<{ data: User[] }>({
+    queryKey: ['users-list'],
+    queryFn: () => api.get<{ data: User[] }>('/auth/users'),
+  });
+
   const {
     control,
     handleSubmit,
@@ -71,6 +86,7 @@ export default function AssetEditPage({ params }: AssetEditPageProps) {
       assetType: 'TABLE',
       description: '',
       domain: '',
+      ownerId: '',
       tags: [],
     },
   });
@@ -85,6 +101,7 @@ export default function AssetEditPage({ params }: AssetEditPageProps) {
         assetType: data.asset.assetType,
         description: data.asset.description || '',
         domain: data.asset.domain || '',
+        ownerId: data.asset.ownerId || '',
         tags: data.asset.tags || [],
       });
     }
@@ -97,6 +114,7 @@ export default function AssetEditPage({ params }: AssetEditPageProps) {
         assetType: formData.assetType,
         description: formData.description || undefined,
         domain: formData.domain || undefined,
+        ownerId: formData.ownerId || undefined,
         tags: formData.tags,
       }),
     onSuccess: () => {
@@ -265,6 +283,26 @@ export default function AssetEditPage({ params }: AssetEditPageProps) {
                   control={control}
                   render={({ field }) => (
                     <TextField {...field} label="Domain" fullWidth />
+                  )}
+                />
+
+                <Controller
+                  name="ownerId"
+                  control={control}
+                  render={({ field }) => (
+                    <FormControl fullWidth>
+                      <InputLabel>Owner</InputLabel>
+                      <Select {...field} label="Owner">
+                        <MenuItem value="">No Owner</MenuItem>
+                        {usersData?.data.map((user) => (
+                          <MenuItem key={user.id} value={user.id}>
+                            {user.firstName && user.lastName
+                              ? `${user.firstName} ${user.lastName} (${user.username || user.email})`
+                              : user.username || user.email}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
                   )}
                 />
 

@@ -17,9 +17,9 @@ columnLineageRouter.use(authenticate);
 columnLineageRouter.post(
   '/',
   validate([
-    body('sourceAssetId').isUUID().withMessage('Valid source asset ID is required'),
+    body('sourceAssetId').notEmpty().withMessage('Valid source asset ID is required'),
     body('sourceColumn').notEmpty().withMessage('Source column is required'),
-    body('targetAssetId').isUUID().withMessage('Valid target asset ID is required'),
+    body('targetAssetId').notEmpty().withMessage('Valid target asset ID is required'),
     body('targetColumn').notEmpty().withMessage('Target column is required'),
     body('transformationType').isIn(['DIRECT', 'DERIVED', 'AGGREGATED', 'FILTERED', 'JOINED', 'CASE', 'COALESCED'])
       .withMessage('Valid transformation type is required'),
@@ -47,6 +47,28 @@ columnLineageRouter.get(
   })
 );
 
+// PUT /api/v1/lineage/columns/:id - Update column lineage edge
+columnLineageRouter.put(
+  '/:id',
+  validate([
+    param('id').isUUID().withMessage('Valid edge ID is required'),
+    body('transformationType').optional().isIn(['DIRECT', 'DERIVED', 'AGGREGATED', 'FILTERED', 'JOINED', 'CASE', 'COALESCED'])
+      .withMessage('Valid transformation type is required'),
+    body('transformationExpression').optional().isString().withMessage('Transformation expression must be a string'),
+    body('confidence').optional().isFloat({ min: 0, max: 1 }).withMessage('Confidence must be between 0 and 1'),
+    body('metadata').optional().isObject().withMessage('Metadata must be an object'),
+  ]),
+  asyncHandler(async (req, res) => {
+    const edge = await columnLineageService.updateColumnLineageEdge(req.params['id']!, {
+      transformationType: req.body['transformationType'],
+      transformationExpression: req.body['transformationExpression'],
+      confidence: req.body['confidence'],
+      metadata: req.body['metadata'],
+    });
+    res.json({ edge });
+  })
+);
+
 // DELETE /api/v1/lineage/columns/:id - Delete column lineage edge
 columnLineageRouter.delete(
   '/:id',
@@ -63,7 +85,7 @@ columnLineageRouter.delete(
 columnLineageRouter.get(
   '/asset/:assetId',
   validate([
-    param('assetId').isUUID().withMessage('Valid asset ID is required'),
+    param('assetId').notEmpty().withMessage('Valid asset ID is required'),
   ]),
   asyncHandler(async (req, res) => {
     const edges = await columnLineageService.getColumnLineageForAsset(req.params['assetId']!);
@@ -79,7 +101,7 @@ columnLineageRouter.get(
 columnLineageRouter.get(
   '/:assetId/:column/upstream',
   validate([
-    param('assetId').isUUID().withMessage('Valid asset ID is required'),
+    param('assetId').notEmpty().withMessage('Valid asset ID is required'),
     param('column').notEmpty().withMessage('Column name is required'),
     query('depth').optional().isInt({ min: 1, max: 50 }).withMessage('Depth must be between 1 and 50'),
   ]),
@@ -98,7 +120,7 @@ columnLineageRouter.get(
 columnLineageRouter.get(
   '/:assetId/:column/downstream',
   validate([
-    param('assetId').isUUID().withMessage('Valid asset ID is required'),
+    param('assetId').notEmpty().withMessage('Valid asset ID is required'),
     param('column').notEmpty().withMessage('Column name is required'),
     query('depth').optional().isInt({ min: 1, max: 50 }).withMessage('Depth must be between 1 and 50'),
   ]),
@@ -117,7 +139,7 @@ columnLineageRouter.get(
 columnLineageRouter.get(
   '/:assetId/:column/impact',
   validate([
-    param('assetId').isUUID().withMessage('Valid asset ID is required'),
+    param('assetId').notEmpty().withMessage('Valid asset ID is required'),
     param('column').notEmpty().withMessage('Column name is required'),
     query('maxDepth').optional().isInt({ min: 1, max: 100 }).withMessage('Max depth must be between 1 and 100'),
   ]),

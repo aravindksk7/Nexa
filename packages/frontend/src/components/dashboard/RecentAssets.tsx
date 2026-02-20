@@ -59,7 +59,7 @@ export function RecentAssets() {
   };
 
   return (
-    <Card>
+    <Card sx={{ height: '100%' }}>
       <CardHeader
         title="Recent Assets"
         titleTypographyProps={{ variant: 'h6', fontWeight: 600 }}

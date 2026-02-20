@@ -30,6 +30,10 @@ interface QualityResult {
   executedAt: Date;
 }
 
+interface QualityHistoryEntry extends QualityResult {
+  ruleName: string;
+}
+
 interface CreateQualityRuleInput {
   assetId: string;
   name: string;
@@ -191,6 +195,8 @@ export class QualityService {
       throw new Error(`Rule ${ruleId} is disabled`);
     }
 
+    this.validateRuleDefinition(rule as unknown as QualityRule);
+
     // Evaluate the rule based on type
     const evaluationResult = await this.executeRuleLogic(rule);
 
@@ -310,17 +316,95 @@ export class QualityService {
   async getQualityHistory(
     assetId: string,
     limit: number = 50
-  ): Promise<QualityResult[]> {
-    const results = await prisma.qualityResult.findMany({
+  ): Promise<QualityHistoryEntry[]> {
+    const results = await (prisma.qualityResult as unknown as {
+      findMany: (args: object) => Promise<Array<QualityResult & { rule: { name: string } }>>;
+    }).findMany({
       where: { assetId },
       include: {
-        rule: true,
+        rule: {
+          select: {
+            name: true,
+          },
+        },
       },
       orderBy: { executedAt: 'desc' },
       take: limit,
     });
 
-    return results;
+    return results.map((result) => ({
+      id: result.id,
+      ruleId: result.ruleId,
+      assetId: result.assetId,
+      passed: result.passed,
+      resultData: result.resultData,
+      executedAt: result.executedAt,
+      ruleName: result.rule.name,
+    }));
+  }
+
+  private validateRuleDefinition(rule: QualityRule): void {
+    const definition = rule.ruleDefinition as Record<string, unknown> | null;
+
+    if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
+      throw new Error(`Rule ${rule.id} has invalid definition format`);
+    }
+
+    const requiredString = (key: string): string => {
+      const value = definition[key];
+      if (typeof value !== 'string' || value.trim().length === 0) {
+        throw new Error(`Rule ${rule.id} is missing required field: ${key}`);
+      }
+      return value;
+    };
+
+    const requiredNumber = (key: string): number => {
+      const value = definition[key];
+      if (typeof value !== 'number' || Number.isNaN(value)) {
+        throw new Error(`Rule ${rule.id} has invalid numeric field: ${key}`);
+      }
+      return value;
+    };
+
+    switch (rule.ruleType) {
+      case 'COMPLETENESS': {
+        requiredString('columnName');
+        if (definition['nullThreshold'] !== undefined) {
+          requiredNumber('nullThreshold');
+        }
+        break;
+      }
+      case 'UNIQUENESS': {
+        requiredString('columnName');
+        break;
+      }
+      case 'RANGE': {
+        requiredString('columnName');
+        const minValue = requiredNumber('minValue');
+        const maxValue = requiredNumber('maxValue');
+        if (minValue > maxValue) {
+          throw new Error(`Rule ${rule.id} has invalid range: minValue must be <= maxValue`);
+        }
+        break;
+      }
+      case 'PATTERN': {
+        requiredString('columnName');
+        requiredString('pattern');
+        break;
+      }
+      case 'REFERENTIAL': {
+        requiredString('sourceColumn');
+        requiredString('targetTable');
+        requiredString('targetColumn');
+        break;
+      }
+      case 'CUSTOM': {
+        requiredString('expression');
+        break;
+      }
+      default:
+        break;
+    }
   }
 
   /**

@@ -17,12 +17,14 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { RecentAssets } from '@/components/dashboard/RecentAssets';
-import { QualityOverview } from '@/components/dashboard/QualityOverview';
+import { QualityOverview } from '../../../components/dashboard/QualityOverview';
+import { QualityRecentFailures } from '@/components/dashboard/QualityRecentFailures';
 
 interface DashboardStats {
   totalAssets: number;
   totalConnections: number;
   recentUploads: number;
+  recentUploadsDays: number;
   qualityScore: number;
 }
 
@@ -30,23 +32,7 @@ export default function DashboardPage() {
   const { data: stats, isLoading } = useQuery<DashboardStats>({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
-      // Fetch real counts from the assets API and quality overview in parallel
-      const [assetsRes, qualityOverview] = await Promise.all([
-        api.get<{
-          data: unknown[];
-          pagination: { total: number };
-        }>('/assets?page=1&limit=1'),
-        api.get<{ overallScore: number; totalRules: number }>('/quality/overview').catch(() => ({ overallScore: 0, totalRules: 0 })),
-      ]);
-
-      const totalAssets = assetsRes.pagination?.total ?? 0;
-
-      return {
-        totalAssets,
-        totalConnections: 0,
-        recentUploads: 0,
-        qualityScore: qualityOverview.overallScore ?? 0,
-      };
+      return api.get<DashboardStats>('/dashboard/overview');
     },
   });
 
@@ -64,7 +50,7 @@ export default function DashboardPage() {
       color: '#8b5cf6',
     },
     {
-      title: 'Recent Uploads',
+      title: `Uploads (${stats?.recentUploadsDays ?? 7}d)`,
       value: stats?.recentUploads ?? 0,
       icon: CloudUploadIcon,
       color: '#f59e0b',
@@ -85,8 +71,8 @@ export default function DashboardPage() {
 
       <Grid container spacing={3} sx={{ mb: 4 }}>
         {statCards.map((card) => (
-          <Grid size={{ xs: 12, sm: 6, lg: 3 }} key={card.title}>
-            <Card>
+          <Grid item xs={12} sm={6} lg={3} key={card.title}>
+            <Card sx={{ height: '100%' }}>
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                   <Box
@@ -116,12 +102,18 @@ export default function DashboardPage() {
         ))}
       </Grid>
 
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+        <Grid item xs={12}>
+          <QualityOverview />
+        </Grid>
+      </Grid>
+
       <Grid container spacing={3}>
-        <Grid size={{ xs: 12, lg: 8 }}>
+        <Grid item xs={12} lg={8}>
           <RecentAssets />
         </Grid>
-        <Grid size={{ xs: 12, lg: 4 }}>
-          <QualityOverview />
+        <Grid item xs={12} lg={4}>
+          <QualityRecentFailures />
         </Grid>
       </Grid>
     </Box>

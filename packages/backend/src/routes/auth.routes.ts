@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
 import { authenticationService } from '../services/authentication.service.js';
-import { authenticate, asyncHandler, validate } from '../middleware/index.js';
+import { authenticate, authorize, asyncHandler, validate } from '../middleware/index.js';
 import { LoginSchema, CreateUserSchema } from '../models/index.js';
 
 export const authRouter = Router();
@@ -69,6 +69,16 @@ authRouter.get(
   })
 );
 
+// GET /api/v1/auth/users - List all users
+authRouter.get(
+  '/users',
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const users = await authenticationService.listUsers();
+    res.json({ data: users });
+  })
+);
+
 // POST /api/v1/auth/change-password
 authRouter.post(
   '/change-password',
@@ -99,3 +109,78 @@ authRouter.put(
     res.json({ user });
   })
 );
+
+// === ADMIN ONLY ROUTES ===
+
+// GET /api/v1/auth/admin/users/:id - Get a specific user (Admin only)
+authRouter.get(
+  '/admin/users/:id',
+  authenticate,
+  authorize('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const user = await authenticationService.getUserById(req.params['id']!);
+    res.json({ user });
+  })
+);
+
+// PUT /api/v1/auth/admin/users/:id - Update a user (Admin only)
+authRouter.put(
+  '/admin/users/:id',
+  authenticate,
+  authorize('ADMIN'),
+  validate([
+    body('firstName').optional().isLength({ max: 100 }).withMessage('First name must be at most 100 characters'),
+    body('lastName').optional().isLength({ max: 100 }).withMessage('Last name must be at most 100 characters'),
+    body('email').optional().isEmail().withMessage('Valid email is required'),
+    body('username').optional().isLength({ min: 3, max: 50 }).withMessage('Username must be 3-50 characters'),
+  ]),
+  asyncHandler(async (req, res) => {
+    const { firstName, lastName, email, username } = req.body;
+    const user = await authenticationService.updateUser(req.params['id']!, {
+      firstName,
+      lastName,
+      email,
+      username,
+    });
+    res.json({ user });
+  })
+);
+
+// PUT /api/v1/auth/admin/users/:id/role - Change user role (Admin only)
+authRouter.put(
+  '/admin/users/:id/role',
+  authenticate,
+  authorize('ADMIN'),
+  validate([
+    body('role').notEmpty().isIn(['ADMIN', 'DATA_STEWARD', 'DATA_ANALYST', 'BUSINESS_ANALYST']).withMessage('Valid role is required'),
+  ]),
+  asyncHandler(async (req, res) => {
+    const { role } = req.body;
+    const user = await authenticationService.changeUserRole(req.params['id']!, role);
+    res.json({ user });
+  })
+);
+
+// DELETE /api/v1/auth/admin/users/:id - Deactivate a user (Admin only)
+authRouter.delete(
+  '/admin/users/:id',
+  authenticate,
+  authorize('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const user = await authenticationService.deactivateUser(req.params['id']!);
+    res.json({ user, message: 'User deactivated successfully' });
+  })
+);
+
+// POST /api/v1/auth/admin/users/:id/reactivate - Reactivate a user (Admin only)
+authRouter.post(
+  '/admin/users/:id/reactivate',
+  authenticate,
+  authorize('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const user = await authenticationService.reactivateUser(req.params['id']!);
+    res.json({ user, message: 'User reactivated successfully' });
+  })
+);
+
+export default authRouter;

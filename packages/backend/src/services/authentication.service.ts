@@ -338,6 +338,172 @@ export class AuthenticationService {
   }
 
   /**
+   * List all users
+   */
+  async listUsers(): Promise<User[]> {
+    logger.debug('Listing all users');
+
+    const users = await prisma.user.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { username: 'asc' },
+    });
+
+    return users.map((user: any) => this.sanitizeUser(user));
+  }
+
+  /**
+   * Get user by ID
+   */
+  async getUserById(userId: string): Promise<User> {
+    logger.debug({ userId }, 'Getting user by ID');
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundError('User', userId);
+    }
+
+    return this.sanitizeUser(user);
+  }
+
+  /**
+   * Update user (Admin only)
+   */
+  async updateUser(
+    userId: string,
+    data: {
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      username?: string;
+    }
+  ): Promise<User> {
+    logger.debug({ userId, data }, 'Updating user');
+
+    // Check if user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundError('User', userId);
+    }
+
+    // Check for email/username conflicts
+    if (data.email || data.username) {
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            data.email ? { email: data.email } : undefined,
+            data.username ? { username: data.username } : undefined,
+          ].filter(Boolean),
+          id: { not: userId },
+        },
+      });
+
+      if (existingUser) {
+        throw new ConflictError('Email or username already in use');
+      }
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        username: data.username,
+      },
+    });
+
+    logger.info({ userId }, 'User updated successfully');
+    return this.sanitizeUser(updatedUser);
+  }
+
+  /**
+   * Change user role (Admin only)
+   */
+  async changeUserRole(userId: string, newRole: Role): Promise<User> {
+    logger.debug({ userId, newRole }, 'Changing user role');
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundError('User', userId);
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { role: newRole },
+    });
+
+    logger.info({ userId, newRole }, 'User role changed successfully');
+    return this.sanitizeUser(updatedUser);
+  }
+
+  /**
+   * Deactivate user (Admin only)
+   */
+  async deactivateUser(userId: string): Promise<User> {
+    logger.debug({ userId }, 'Deactivating user');
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundError('User', userId);
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { isActive: false },
+    });
+
+    logger.info({ userId }, 'User deactivated successfully');
+    return this.sanitizeUser(updatedUser);
+  }
+
+  /**
+   * Reactivate user (Admin only)
+   */
+  async reactivateUser(userId: string): Promise<User> {
+    logger.debug({ userId }, 'Reactivating user');
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundError('User', userId);
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { isActive: true },
+    });
+
+    logger.info({ userId }, 'User reactivated successfully');
+    return this.sanitizeUser(updatedUser);
+  }
+
+  /**
    * Remove sensitive fields from user object
    */
   private sanitizeUser(user: {

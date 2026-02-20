@@ -51,9 +51,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatDistanceToNow } from '@/lib/utils';
 
-const DRAWER_WIDTH = 260;
+const DRAWER_WIDTH = 256;
 
-const menuItems = [
+const baseMenuItems = [
   { label: 'Dashboard', icon: DashboardIcon, path: '/dashboard' },
   { label: 'Data Catalog', icon: StorageIcon, path: '/catalog' },
   { label: 'Lineage', icon: AccountTreeIcon, path: '/lineage' },
@@ -163,6 +163,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   if (isLoading || !isAuthenticated) {
     return null;
   }
+
+  // Build menu items based on user role
+  const menuItems = [
+    ...baseMenuItems,
+    ...(user?.role === 'ADMIN' ? [
+      { label: 'Admin', icon: SettingsIcon, path: '/admin' },
+    ] : []),
+  ];
 
   const drawer = (
     <Box>
