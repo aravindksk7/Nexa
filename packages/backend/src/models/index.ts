@@ -303,6 +303,12 @@ export const BusinessDomainSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   parentId: z.string().uuid().optional(),
+  _count: z
+    .object({
+      terms: z.number().int().nonnegative(),
+      children: z.number().int().nonnegative(),
+    })
+    .optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

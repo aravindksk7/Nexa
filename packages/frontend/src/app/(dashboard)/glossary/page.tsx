@@ -79,6 +79,13 @@ interface Asset {
   assetType: string;
 }
 
+interface TermAssetMapping {
+  id: string;
+  name: string;
+  assetType: string;
+  columnName?: string;
+}
+
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
@@ -104,9 +111,11 @@ export default function GlossaryPage() {
   const [domainDialogOpen, setDomainDialogOpen] = useState(false);
   const [termDialogOpen, setTermDialogOpen] = useState(false);
   const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
+  const [mappingViewOpen, setMappingViewOpen] = useState(false);
   const [editingDomain, setEditingDomain] = useState<BusinessDomain | null>(null);
   const [editingTerm, setEditingTerm] = useState<BusinessTerm | null>(null);
   const [selectedTermForMapping, setSelectedTermForMapping] = useState<BusinessTerm | null>(null);
+  const [selectedTermForMappings, setSelectedTermForMappings] = useState<BusinessTerm | null>(null);
 
   // Forms
   const domainForm = useForm({
@@ -143,6 +152,18 @@ export default function GlossaryPage() {
       const result = await api.get<{ data: Asset[]; pagination: unknown }>('/assets');
       return result.data ?? [];
     },
+  });
+
+  const { data: termAssets, isLoading: termAssetsLoading } = useQuery<TermAssetMapping[]>({
+    queryKey: ['glossary-term-assets', selectedTermForMappings?.id],
+    queryFn: async () => {
+      if (!selectedTermForMappings) return [];
+      const result = await api.get<{ assets: TermAssetMapping[] }>(
+        `/glossary/terms/${selectedTermForMappings.id}/assets`
+      );
+      return result.assets;
+    },
+    enabled: !!selectedTermForMappings,
   });
 
   // Mutations
@@ -203,10 +224,11 @@ export default function GlossaryPage() {
   });
 
   const createMappingMutation = useMutation({
-    mutationFn: (data: { termId: string; assetId: string; columnName?: string }) =>
+    mutationFn: (data: { businessTermId: string; assetId: string; columnName?: string }) =>
       api.post('/glossary/mappings', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['glossary-terms'] });
+      queryClient.invalidateQueries({ queryKey: ['glossary-term-assets'] });
       setMappingDialogOpen(false);
       setSelectedTermForMapping(null);
       mappingForm.reset();
@@ -241,6 +263,11 @@ export default function GlossaryPage() {
     setMappingDialogOpen(true);
   };
 
+  const handleOpenMappingView = (term: BusinessTerm) => {
+    setSelectedTermForMappings(term);
+    setMappingViewOpen(true);
+  };
+
   const onDomainSubmit = domainForm.handleSubmit((data) => {
     const payload = {
       name: data.name,
@@ -265,7 +292,7 @@ export default function GlossaryPage() {
   const onMappingSubmit = mappingForm.handleSubmit((data) => {
     if (selectedTermForMapping) {
       createMappingMutation.mutate({
-        termId: selectedTermForMapping.id,
+        businessTermId: selectedTermForMapping.id,
         assetId: data.assetId,
         columnName: data.columnName || undefined,
       });
@@ -388,6 +415,7 @@ export default function GlossaryPage() {
                               label={term._count?.mappings || 0}
                               size="small"
                               variant="outlined"
+                              onClick={() => handleOpenMappingView(term)}
                             />
                           </TableCell>
                           <TableCell align="right">
@@ -770,6 +798,67 @@ export default function GlossaryPage() {
             </Button>
           </DialogActions>
         </form>
+      </Dialog>
+
+      {/* Mapping View Dialog */}
+      <Dialog
+        open={mappingViewOpen}
+        onClose={() => {
+          setMappingViewOpen(false);
+          setSelectedTermForMappings(null);
+        }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          Mappings for {selectedTermForMappings?.name || 'Term'}
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 1 }}>
+            {termAssetsLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                <CircularProgress size={24} />
+              </Box>
+            ) : termAssets && termAssets.length > 0 ? (
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Asset</TableCell>
+                      <TableCell>Type</TableCell>
+                      <TableCell>Column</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {termAssets.map((mapping) => (
+                      <TableRow key={`${mapping.id}-${mapping.columnName || 'table'}`}>
+                        <TableCell>
+                          <Typography fontWeight={500}>{mapping.name}</Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={mapping.assetType} size="small" variant="outlined" />
+                        </TableCell>
+                        <TableCell>{mapping.columnName || '-'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : (
+              <Alert severity="info">No mappings found for this term.</Alert>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setMappingViewOpen(false);
+              setSelectedTermForMappings(null);
+            }}
+          >
+            Close
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

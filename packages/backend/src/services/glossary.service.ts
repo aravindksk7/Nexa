@@ -53,6 +53,11 @@ class GlossaryService {
   async listDomains(parentId?: string): Promise<BusinessDomain[]> {
     const domains = await prisma.businessDomain.findMany({
       where: parentId !== undefined ? { parentId } : {},
+      include: {
+        _count: {
+          select: { terms: true, children: true },
+        },
+      },
       orderBy: { name: 'asc' },
     });
     return domains.map(this.mapDomain);
@@ -202,6 +207,9 @@ class GlossaryService {
           domain: true,
           owner: {
             select: { id: true, username: true, email: true },
+          },
+          _count: {
+            select: { mappings: true },
           },
         },
         orderBy: { name: 'asc' },
@@ -585,6 +593,7 @@ class GlossaryService {
     name: string;
     description: string | null;
     parentId: string | null;
+    _count?: { terms: number; children: number };
     createdAt: Date;
     updatedAt: Date;
   }): BusinessDomain {
@@ -593,6 +602,7 @@ class GlossaryService {
       name: domain.name,
       description: domain.description ?? undefined,
       parentId: domain.parentId ?? undefined,
+      _count: domain._count,
       createdAt: domain.createdAt,
       updatedAt: domain.updatedAt,
     };
@@ -609,6 +619,7 @@ class GlossaryService {
     relatedTerms: string[];
     createdAt: Date;
     updatedAt: Date;
+    _count?: { mappings: number };
   }): BusinessTerm {
     return {
       id: term.id,
@@ -621,6 +632,7 @@ class GlossaryService {
       relatedTerms: term.relatedTerms,
       createdAt: term.createdAt,
       updatedAt: term.updatedAt,
+      _count: term._count,
     };
   }
 
