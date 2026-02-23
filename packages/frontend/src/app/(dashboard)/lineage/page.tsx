@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Box,
   Typography,
   Card,
   CardContent,
+  Button,
   TextField,
   InputAdornment,
   Autocomplete,
@@ -15,8 +16,22 @@ import {
   ToggleButtonGroup,
   ToggleButton,
   Paper,
+  FormControl,
   FormControlLabel,
+  InputLabel,
+  MenuItem,
+  Select,
   Switch,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TableSortLabel,
   Drawer,
   List,
   ListItem,
@@ -31,6 +46,7 @@ import {
 } from '@mui/material';
 import {
   Search as SearchIcon,
+  Add as AddIcon,
   ZoomIn as ZoomInIcon,
   ZoomOut as ZoomOutIcon,
   CenterFocusStrong as CenterIcon,
@@ -42,7 +58,7 @@ import {
   Info as InfoIcon,
   Warning as ImpactIcon,
 } from '@mui/icons-material';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
 import * as d3 from 'd3';
 import { api } from '@/lib/api';
@@ -139,11 +155,20 @@ interface ImpactedAsset {
   assetName: string;
   assetType: string;
   depth: number;
-  path: string[];
+  path: Array<{
+    assetId: string;
+    assetName: string;
+    assetType: string;
+    transformationType?: string;
+  }>;
 }
 
 interface ImpactAnalysisResult {
-  sourceAssetId: string;
+  sourceAsset: {
+    id: string;
+    name: string;
+    assetType: string;
+  };
   impactedAssets: ImpactedAsset[];
   totalCount: number;
   countByType: Record<string, number>;
@@ -234,6 +259,19 @@ export default function LineagePage() {
   const [direction, setDirection] = useState<'both' | 'upstream' | 'downstream'>('both');
   const [depth, setDepth] = useState(3);
   const [lineageView, setLineageView] = useState<'asset' | 'column' | 'business'>('asset');
+  const [lineageDisplayMode, setLineageDisplayMode] = useState<'graph' | 'list'>('graph');
+  const [listSortKey, setListSortKey] = useState('source');
+  const [listSortDirection, setListSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [assetSourceFilter, setAssetSourceFilter] = useState('');
+  const [assetTargetFilter, setAssetTargetFilter] = useState('');
+  const [assetTypeFilter, setAssetTypeFilter] = useState('');
+  const [columnSourceAssetFilter, setColumnSourceAssetFilter] = useState('');
+  const [columnSourceColumnFilter, setColumnSourceColumnFilter] = useState('');
+  const [columnTargetAssetFilter, setColumnTargetAssetFilter] = useState('');
+  const [columnTargetColumnFilter, setColumnTargetColumnFilter] = useState('');
+  const [columnTypeFilter, setColumnTypeFilter] = useState('');
+  const [businessSourceFilter, setBusinessSourceFilter] = useState('');
+  const [businessTargetFilter, setBusinessTargetFilter] = useState('');
   const [showBusinessTerms, setShowBusinessTerms] = useState(false);
   const [selectedColumn, setSelectedColumn] = useState<string | null>(null);
   const [selectedBusinessTerm, setSelectedBusinessTerm] = useState<string | null>(null);
@@ -242,18 +280,85 @@ export default function LineagePage() {
   const [enrichedLineageData, setEnrichedLineageData] = useState<LineageGraph | null>(null);
   const [impactDrawerOpen, setImpactDrawerOpen] = useState(false);
   const [impactAssetId, setImpactAssetId] = useState<string | null>(null);
+  const [manualDialogOpen, setManualDialogOpen] = useState(false);
+  const [manualSource, setManualSource] = useState<LineageNode | null>(null);
+  const [manualTarget, setManualTarget] = useState<LineageNode | null>(null);
+  const [manualType, setManualType] = useState('MANUAL');
+  const [manualLogic, setManualLogic] = useState('');
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [manualSuccess, setManualSuccess] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (lineageView === 'asset') {
+      setListSortKey('source');
+    }
+    if (lineageView === 'column') {
+      setListSortKey('sourceAsset');
+    }
+    if (lineageView === 'business') {
+      setListSortKey('sourceTerm');
+    }
+    setAssetSourceFilter('');
+    setAssetTargetFilter('');
+    setAssetTypeFilter('');
+    setColumnSourceAssetFilter('');
+    setColumnSourceColumnFilter('');
+    setColumnTargetAssetFilter('');
+    setColumnTargetColumnFilter('');
+    setColumnTypeFilter('');
+    setBusinessSourceFilter('');
+    setBusinessTargetFilter('');
+  }, [lineageView]);
+
+  const handleListSort = (key: string) => {
+    if (listSortKey === key) {
+      setListSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setListSortKey(key);
+    setListSortDirection('asc');
+  };
+
+  const lineageTypeOptions = [
+    { value: 'MANUAL', label: 'Manual' },
+    { value: 'FOREIGN_KEY', label: 'Foreign Key' },
+    { value: 'SQL', label: 'SQL Transform' },
+    { value: 'OPENLINEAGE', label: 'OpenLineage' },
+  ];
 
   // Impact Analysis Query
   const { data: impactData, isLoading: impactLoading } = useQuery<ImpactAnalysisResult>({
     queryKey: ['impact-analysis', impactAssetId],
     queryFn: async () => {
       const response = await api.get<ImpactAnalysisApiResponse>(`/lineage/${impactAssetId}/impact?maxDepth=5`);
-      const impact: ImpactAnalysisResult = 'impact' in response
-        ? (response.impact ?? { sourceAssetId: impactAssetId ?? '', impactedAssets: [], totalCount: 0, countByType: {} })
+      const impact: ImpactAnalysisResult | undefined = 'impact' in response
+        ? (response.impact as ImpactAnalysisResult | undefined)
         : (response as ImpactAnalysisResult);
+      if (!impact) {
+        return {
+          sourceAsset: { id: impactAssetId ?? '', name: '', assetType: 'OTHER' },
+          impactedAssets: [],
+          totalCount: 0,
+          countByType: {},
+        };
+      }
+      const sourceAsset = impact.sourceAsset ?? { id: impactAssetId ?? '', name: '', assetType: 'OTHER' };
+      const impactedAssets = (impact.impactedAssets ?? []).map((asset) => ({
+        assetId: (asset as { id?: string; assetId?: string }).id ?? asset.assetId ?? '',
+        assetName: (asset as { name?: string; assetName?: string }).name ?? asset.assetName ?? '',
+        assetType: asset.assetType ?? 'OTHER',
+        depth: asset.depth ?? 0,
+        path: (asset.path ?? []).map((step) => ({
+          assetId: (step as { id?: string; assetId?: string }).id ?? step.assetId ?? '',
+          assetName: (step as { name?: string; assetName?: string }).name ?? step.assetName ?? '',
+          assetType: step.assetType ?? 'OTHER',
+          transformationType: step.transformationType,
+        })),
+      }));
       return {
-        sourceAssetId: impact.sourceAssetId,
-        impactedAssets: impact.impactedAssets ?? [],
+        sourceAsset,
+        impactedAssets,
         totalCount: impact.totalCount ?? 0,
         countByType: impact.countByType ?? {},
       };
@@ -261,10 +366,103 @@ export default function LineagePage() {
     enabled: !!impactAssetId && impactDrawerOpen,
   });
 
+  const formatImpactPath = (path: ImpactedAsset['path']) => {
+    if (!path || path.length === 0) return '';
+    return path.reduce((acc, step, index) => {
+      const label = `${step.assetName} (${step.assetType})`;
+      if (index === 0) return label;
+      const connector = step.transformationType ? ` --${step.transformationType}--> ` : ' -> ';
+      return `${acc}${connector}${label}`;
+    }, '');
+  };
+
   const handleShowImpact = useCallback((nodeId: string) => {
     setImpactAssetId(nodeId);
     setImpactDrawerOpen(true);
   }, []);
+
+  const handleExportLineage = () => {
+    let rows: string[] = [];
+    let filename = 'lineage-export.csv';
+
+    if (lineageView === 'asset' && lineageData) {
+      const nodeMap = new Map(lineageData.nodes.map((node) => [node.id, node]));
+      rows = [
+        'source_id,source_name,source_type,source_namespace,target_id,target_name,target_type,target_namespace,transformation_type,transformation_logic',
+        ...lineageData.edges.map((edge) =>
+          [
+            edge.source,
+            nodeMap.get(edge.source)?.name ?? '',
+            nodeMap.get(edge.source)?.type ?? '',
+            nodeMap.get(edge.source)?.namespace ?? '',
+            edge.target,
+            nodeMap.get(edge.target)?.name ?? '',
+            nodeMap.get(edge.target)?.type ?? '',
+            nodeMap.get(edge.target)?.namespace ?? '',
+            edge.type,
+            '',
+          ].map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')
+        ),
+      ];
+      filename = 'lineage-asset-edges.csv';
+    }
+
+    if (lineageView === 'column' && columnLineageData) {
+      const nodeMap = new Map(columnLineageData.nodes.map((node) => [node.assetId, node]));
+      rows = [
+        'source_asset_id,source_asset_name,source_asset_type,source_column,target_asset_id,target_asset_name,target_asset_type,target_column,transformation_type,transformation_expression,confidence',
+        ...columnLineageData.edges.map((edge) =>
+          [
+            edge.sourceAssetId,
+            nodeMap.get(edge.sourceAssetId)?.assetName ?? '',
+            nodeMap.get(edge.sourceAssetId)?.assetType ?? '',
+            edge.sourceColumn,
+            edge.targetAssetId,
+            nodeMap.get(edge.targetAssetId)?.assetName ?? '',
+            nodeMap.get(edge.targetAssetId)?.assetType ?? '',
+            edge.targetColumn,
+            edge.transformationType,
+            edge.transformationExpression ?? '',
+            edge.confidence,
+          ].map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')
+        ),
+      ];
+      filename = 'lineage-column-edges.csv';
+    }
+
+    if (lineageView === 'business' && businessLineageData) {
+      const nodeMap = new Map(businessLineageData.nodes.map((node) => [node.id, node.name]));
+      rows = [
+        'source_term_id,source_term_name,target_term_id,target_term_name,strength,asset_path,asset_path_types',
+        ...businessLineageData.edges.map((edge) =>
+          [
+            String(edge.source),
+            nodeMap.get(String(edge.source)) ?? '',
+            String(edge.target),
+            nodeMap.get(String(edge.target)) ?? '',
+            edge.strength,
+            edge.assetPath.map((asset) => asset.assetName).join(' -> '),
+            edge.assetPath.map((asset) => asset.assetType).join(' -> '),
+          ].map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')
+        ),
+      ];
+      filename = 'lineage-business-edges.csv';
+    }
+
+    if (rows.length === 0) {
+      return;
+    }
+
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const { data: lineageData, isLoading } = useQuery<LineageGraph>({
     queryKey: ['lineage', selectedAsset, direction, depth],
@@ -325,17 +523,77 @@ export default function LineagePage() {
   const { data: searchResults } = useQuery<LineageNode[]>({
     queryKey: ['lineage-search'],
     queryFn: async () => {
-      const response = await api.get<{ assets?: Array<{ id: string; name: string; assetType: string }> }>(
-        '/assets?limit=200'
+      const response = await api.get<{
+        data?: Array<{ id: string; name: string; assetType: string }>;
+        items?: Array<{ id: string; name: string; assetType: string }>;
+        assets?: Array<{ id: string; name: string; assetType: string }>;
+      }>(
+        '/assets?limit=100'
       );
 
-      return (response.assets ?? []).map((asset) => ({
+      const assets = response.data ?? response.items ?? response.assets ?? [];
+
+      return assets.map((asset) => ({
         id: asset.id,
         name: asset.name,
         type: asset.assetType,
       }));
     },
   });
+
+  const createLineageMutation = useMutation({
+    mutationFn: (payload: {
+      sourceAssetId: string;
+      targetAssetId: string;
+      transformationType: string;
+      transformationLogic?: string;
+      metadata?: Record<string, unknown>;
+    }) => api.post('/lineage/edges', payload),
+    onSuccess: () => {
+      setManualError(null);
+      setManualSuccess('Lineage edge created successfully.');
+      queryClient.invalidateQueries({ queryKey: ['lineage'] });
+      if (selectedAsset) {
+        queryClient.invalidateQueries({ queryKey: ['lineage', selectedAsset, direction, depth] });
+      }
+    },
+    onError: (error) => {
+      setManualSuccess(null);
+      setManualError(error instanceof Error ? error.message : 'Failed to create lineage');
+    },
+  });
+
+  const handleOpenManualDialog = () => {
+    setManualError(null);
+    setManualSuccess(null);
+    const selectedOption = searchResults?.find((asset) => asset.id === selectedAsset) ?? null;
+    setManualSource(selectedOption);
+    setManualTarget(null);
+    setManualType('MANUAL');
+    setManualLogic('');
+    setManualDialogOpen(true);
+  };
+
+  const handleCreateManualLineage = () => {
+    if (!manualSource || !manualTarget) {
+      setManualError('Select both a source and a target asset.');
+      return;
+    }
+    if (manualSource.id === manualTarget.id) {
+      setManualError('Source and target assets must be different.');
+      return;
+    }
+
+    createLineageMutation.mutate({
+      sourceAssetId: manualSource.id,
+      targetAssetId: manualTarget.id,
+      transformationType: manualType,
+      ...(manualLogic ? { transformationLogic: manualLogic } : {}),
+      metadata: {
+        source: 'MANUAL_UI',
+      },
+    });
+  };
 
   // Query for column lineage
   const { data: columnLineageData, isLoading: isColumnLineageLoading } = useQuery<ColumnLineageGraph>({
@@ -448,6 +706,202 @@ export default function LineagePage() {
     },
     enabled: lineageView === 'business' && !!selectedBusinessTerm,
   });
+
+  const assetListRows = useMemo(() => {
+    if (!lineageData) return [];
+    const nodeMap = new Map(lineageData.nodes.map((node) => [node.id, node]));
+    const sourceFilter = assetSourceFilter.trim().toLowerCase();
+    const targetFilter = assetTargetFilter.trim().toLowerCase();
+    const typeFilter = assetTypeFilter.trim().toLowerCase();
+    const rows = lineageData.edges.map((edge) => {
+      const sourceNode = nodeMap.get(edge.source);
+      const targetNode = nodeMap.get(edge.target);
+      return {
+        id: `${edge.source}-${edge.target}-${edge.type}`,
+        sourceId: edge.source,
+        sourceName: sourceNode?.name ?? edge.source,
+        sourceType: sourceNode?.type ?? '',
+        sourceNamespace: sourceNode?.namespace ?? '',
+        targetId: edge.target,
+        targetName: targetNode?.name ?? edge.target,
+        targetType: targetNode?.type ?? '',
+        targetNamespace: targetNode?.namespace ?? '',
+        transformationType: edge.type,
+      };
+    });
+
+    const filtered = rows.filter((row) => {
+      if (sourceFilter) {
+        const sourceValue = `${row.sourceName} ${row.sourceType} ${row.sourceNamespace}`.toLowerCase();
+        if (!sourceValue.includes(sourceFilter)) return false;
+      }
+      if (targetFilter) {
+        const targetValue = `${row.targetName} ${row.targetType} ${row.targetNamespace}`.toLowerCase();
+        if (!targetValue.includes(targetFilter)) return false;
+      }
+      if (typeFilter && !row.transformationType.toLowerCase().includes(typeFilter)) return false;
+      return true;
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      const multiplier = listSortDirection === 'asc' ? 1 : -1;
+      const getValue = (row: typeof a) => {
+        switch (listSortKey) {
+          case 'target':
+            return row.targetName;
+          case 'type':
+            return row.transformationType;
+          case 'sourceType':
+            return row.sourceType;
+          case 'targetType':
+            return row.targetType;
+          default:
+            return row.sourceName;
+        }
+      };
+      const left = String(getValue(a)).toLowerCase();
+      const right = String(getValue(b)).toLowerCase();
+      if (left > right) return 1 * multiplier;
+      if (left < right) return -1 * multiplier;
+      return 0;
+    });
+
+    return sorted;
+  }, [lineageData, assetSourceFilter, assetTargetFilter, assetTypeFilter, listSortDirection, listSortKey]);
+
+  const columnListRows = useMemo(() => {
+    if (!columnLineageData) return [];
+    const nodeMap = new Map(columnLineageData.nodes.map((node) => [node.assetId, node]));
+    const sourceAssetFilter = columnSourceAssetFilter.trim().toLowerCase();
+    const sourceColumnFilter = columnSourceColumnFilter.trim().toLowerCase();
+    const targetAssetFilter = columnTargetAssetFilter.trim().toLowerCase();
+    const targetColumnFilter = columnTargetColumnFilter.trim().toLowerCase();
+    const typeFilter = columnTypeFilter.trim().toLowerCase();
+    const rows = columnLineageData.edges.map((edge) => {
+      const sourceNode = nodeMap.get(edge.sourceAssetId);
+      const targetNode = nodeMap.get(edge.targetAssetId);
+      return {
+        id: `${edge.sourceAssetId}-${edge.sourceColumn}-${edge.targetAssetId}-${edge.targetColumn}`,
+        sourceAssetId: edge.sourceAssetId,
+        sourceAssetName: sourceNode?.assetName ?? edge.sourceAssetId,
+        sourceAssetType: sourceNode?.assetType ?? '',
+        sourceColumn: edge.sourceColumn,
+        targetAssetId: edge.targetAssetId,
+        targetAssetName: targetNode?.assetName ?? edge.targetAssetId,
+        targetAssetType: targetNode?.assetType ?? '',
+        targetColumn: edge.targetColumn,
+        transformationType: edge.transformationType,
+        transformationExpression: edge.transformationExpression ?? '',
+        confidence: edge.confidence,
+      };
+    });
+
+    const filtered = rows.filter((row) => {
+      if (sourceAssetFilter) {
+        const sourceValue = `${row.sourceAssetName} ${row.sourceAssetType}`.toLowerCase();
+        if (!sourceValue.includes(sourceAssetFilter)) return false;
+      }
+      if (sourceColumnFilter && !row.sourceColumn.toLowerCase().includes(sourceColumnFilter)) return false;
+      if (targetAssetFilter) {
+        const targetValue = `${row.targetAssetName} ${row.targetAssetType}`.toLowerCase();
+        if (!targetValue.includes(targetAssetFilter)) return false;
+      }
+      if (targetColumnFilter && !row.targetColumn.toLowerCase().includes(targetColumnFilter)) return false;
+      if (typeFilter && !row.transformationType.toLowerCase().includes(typeFilter)) return false;
+      return true;
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      const multiplier = listSortDirection === 'asc' ? 1 : -1;
+      const getValue = (row: typeof a) => {
+        switch (listSortKey) {
+          case 'sourceColumn':
+            return row.sourceColumn;
+          case 'targetAsset':
+            return row.targetAssetName;
+          case 'targetColumn':
+            return row.targetColumn;
+          case 'type':
+            return row.transformationType;
+          case 'confidence':
+            return row.confidence;
+          default:
+            return row.sourceAssetName;
+        }
+      };
+      const left = getValue(a);
+      const right = getValue(b);
+      if (typeof left === 'number' && typeof right === 'number') {
+        return (left - right) * multiplier;
+      }
+      const leftText = String(left).toLowerCase();
+      const rightText = String(right).toLowerCase();
+      if (leftText > rightText) return 1 * multiplier;
+      if (leftText < rightText) return -1 * multiplier;
+      return 0;
+    });
+
+    return sorted;
+  }, [
+    columnLineageData,
+    columnSourceAssetFilter,
+    columnSourceColumnFilter,
+    columnTargetAssetFilter,
+    columnTargetColumnFilter,
+    columnTypeFilter,
+    listSortDirection,
+    listSortKey,
+  ]);
+
+  const businessListRows = useMemo(() => {
+    if (!businessLineageData) return [];
+    const nodeMap = new Map(businessLineageData.nodes.map((node) => [String(node.id), node.name]));
+    const sourceFilter = businessSourceFilter.trim().toLowerCase();
+    const targetFilter = businessTargetFilter.trim().toLowerCase();
+    const rows = businessLineageData.edges.map((edge, index) => {
+      return {
+        id: `${edge.source}-${edge.target}-${index}`,
+        sourceTermId: String(edge.source),
+        sourceTermName: nodeMap.get(String(edge.source)) ?? String(edge.source),
+        targetTermId: String(edge.target),
+        targetTermName: nodeMap.get(String(edge.target)) ?? String(edge.target),
+        strength: edge.strength,
+        assetPath: edge.assetPath.map((asset) => asset.assetName).join(' -> '),
+      };
+    });
+
+    const filtered = rows.filter((row) => {
+      if (sourceFilter && !row.sourceTermName.toLowerCase().includes(sourceFilter)) return false;
+      if (targetFilter && !row.targetTermName.toLowerCase().includes(targetFilter)) return false;
+      return true;
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      const multiplier = listSortDirection === 'asc' ? 1 : -1;
+      const getValue = (row: typeof a) => {
+        switch (listSortKey) {
+          case 'targetTerm':
+            return row.targetTermName;
+          case 'strength':
+            return row.strength;
+          default:
+            return row.sourceTermName;
+        }
+      };
+      const left = getValue(a);
+      const right = getValue(b);
+      if (typeof left === 'number' && typeof right === 'number') {
+        return (left - right) * multiplier;
+      }
+      const leftText = String(left).toLowerCase();
+      const rightText = String(right).toLowerCase();
+      if (leftText > rightText) return 1 * multiplier;
+      if (leftText < rightText) return -1 * multiplier;
+      return 0;
+    });
+
+    return sorted;
+  }, [businessLineageData, businessSourceFilter, businessTargetFilter, listSortDirection, listSortKey]);
 
   const { data: availableColumnsData, isLoading: isColumnsLoading } = useQuery<string[]>({
     queryKey: ['lineage-asset-columns', selectedAsset],
@@ -602,7 +1056,7 @@ export default function LineagePage() {
 
   // Asset-level D3 visualization
   useEffect(() => {
-    if (lineageView !== 'asset' || !svgRef.current || !containerRef.current || !enrichedLineageData) return;
+    if (lineageView !== 'asset' || lineageDisplayMode !== 'graph' || !svgRef.current || !containerRef.current || !enrichedLineageData) return;
 
     const width = containerRef.current.clientWidth;
     const height = 500;
@@ -782,11 +1236,11 @@ export default function LineagePage() {
     return () => {
       simulation.stop();
     };
-  }, [lineageView, enrichedLineageData, getNodeColor, handleNodeClick, showBusinessTerms, theme]);
+  }, [lineageView, lineageDisplayMode, enrichedLineageData, getNodeColor, handleNodeClick, showBusinessTerms, theme]);
 
   // Column-level D3 visualization
   useEffect(() => {
-    if (lineageView !== 'column' || !svgRef.current || !containerRef.current || !columnLineageData) return;
+    if (lineageView !== 'column' || lineageDisplayMode !== 'graph' || !svgRef.current || !containerRef.current || !columnLineageData) return;
 
     const width = containerRef.current.clientWidth;
     const height = 500;
@@ -958,11 +1412,11 @@ export default function LineagePage() {
     return () => {
       simulation.stop();
     };
-  }, [lineageView, columnLineageData, getNodeColor, getTransformationColor, selectedAsset, selectedColumn, theme]);
+  }, [lineageView, lineageDisplayMode, columnLineageData, getNodeColor, getTransformationColor, selectedAsset, selectedColumn, theme]);
 
   // Business lineage D3 visualization
   useEffect(() => {
-    if (lineageView !== 'business' || !svgRef.current || !containerRef.current || !businessLineageData) return;
+    if (lineageView !== 'business' || lineageDisplayMode !== 'graph' || !svgRef.current || !containerRef.current || !businessLineageData) return;
 
     const safeNodes = businessLineageData.nodes ?? [];
     const safeEdges = businessLineageData.edges ?? [];
@@ -1128,7 +1582,7 @@ export default function LineagePage() {
     return () => {
       simulation.stop();
     };
-  }, [lineageView, businessLineageData, theme]);
+  }, [lineageView, lineageDisplayMode, businessLineageData, theme]);
 
   return (
     <Box>
@@ -1138,36 +1592,49 @@ export default function LineagePage() {
 
       {/* View Tabs */}
       <Card sx={{ mb: 2 }}>
-        <Tabs
-          value={lineageView}
-          onChange={(_, newValue) => {
-            setLineageView(newValue);
-            // Reset direction to 'downstream' when switching to column view if 'both' is selected
-            if (newValue === 'column' && direction === 'both') {
-              setDirection('downstream');
-            }
-          }}
-          sx={{ borderBottom: 1, borderColor: 'divider' }}
-        >
-          <Tab
-            value="asset"
-            label="Asset Lineage"
-            icon={<ColumnIcon />}
-            iconPosition="start"
-          />
-          <Tab
-            value="column"
-            label="Column Lineage"
-            icon={<AccountTree />}
-            iconPosition="start"
-          />
-          <Tab
-            value="business"
-            label="Business Lineage"
-            icon={<BusinessIcon />}
-            iconPosition="start"
-          />
-        </Tabs>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pr: 2 }}>
+          <Tabs
+            value={lineageView}
+            onChange={(_, newValue) => {
+              setLineageView(newValue);
+              // Reset direction to 'downstream' when switching to column view if 'both' is selected
+              if (newValue === 'column' && direction === 'both') {
+                setDirection('downstream');
+              }
+            }}
+            sx={{ borderBottom: 1, borderColor: 'divider', flex: 1 }}
+          >
+            <Tab
+              value="asset"
+              label="Asset Lineage"
+              icon={<ColumnIcon />}
+              iconPosition="start"
+            />
+            <Tab
+              value="column"
+              label="Column Lineage"
+              icon={<AccountTree />}
+              iconPosition="start"
+            />
+            <Tab
+              value="business"
+              label="Business Lineage"
+              icon={<BusinessIcon />}
+              iconPosition="start"
+            />
+          </Tabs>
+          {lineageView !== 'business' && (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleOpenManualDialog}
+              disabled={!searchResults || searchResults.length === 0}
+            >
+              Create Lineage
+            </Button>
+          )}
+        </Box>
       </Card>
 
       <Card sx={{ mb: 3 }}>
@@ -1306,6 +1773,173 @@ export default function LineagePage() {
                 htmlInput: { min: 1, max: 10 },
               }}
             />
+
+            <ToggleButtonGroup
+              value={lineageDisplayMode}
+              exclusive
+              onChange={(_, value) => value && setLineageDisplayMode(value)}
+              size="small"
+            >
+              <ToggleButton value="graph">Graph</ToggleButton>
+              <ToggleButton value="list">List</ToggleButton>
+            </ToggleButtonGroup>
+
+            <Button
+              variant="outlined"
+              onClick={handleExportLineage}
+              disabled={
+                (lineageView === 'asset' && (!lineageData || lineageData.edges.length === 0)) ||
+                (lineageView === 'column' && (!columnLineageData || columnLineageData.edges.length === 0)) ||
+                (lineageView === 'business' && (!businessLineageData || businessLineageData.edges.length === 0))
+              }
+            >
+              Export CSV
+            </Button>
+
+            {lineageDisplayMode === 'list' && (
+              <>
+                {lineageView === 'asset' && (
+                  <>
+                    <TextField
+                      label="Source Filter"
+                      value={assetSourceFilter}
+                      onChange={(e) => setAssetSourceFilter(e.target.value)}
+                      size="small"
+                      sx={{ minWidth: 180 }}
+                    />
+                    <TextField
+                      label="Target Filter"
+                      value={assetTargetFilter}
+                      onChange={(e) => setAssetTargetFilter(e.target.value)}
+                      size="small"
+                      sx={{ minWidth: 180 }}
+                    />
+                    <TextField
+                      label="Type Filter"
+                      value={assetTypeFilter}
+                      onChange={(e) => setAssetTypeFilter(e.target.value)}
+                      size="small"
+                      sx={{ minWidth: 160 }}
+                    />
+                  </>
+                )}
+                {lineageView === 'column' && (
+                  <>
+                    <TextField
+                      label="Source Asset"
+                      value={columnSourceAssetFilter}
+                      onChange={(e) => setColumnSourceAssetFilter(e.target.value)}
+                      size="small"
+                      sx={{ minWidth: 170 }}
+                    />
+                    <TextField
+                      label="Source Column"
+                      value={columnSourceColumnFilter}
+                      onChange={(e) => setColumnSourceColumnFilter(e.target.value)}
+                      size="small"
+                      sx={{ minWidth: 170 }}
+                    />
+                    <TextField
+                      label="Target Asset"
+                      value={columnTargetAssetFilter}
+                      onChange={(e) => setColumnTargetAssetFilter(e.target.value)}
+                      size="small"
+                      sx={{ minWidth: 170 }}
+                    />
+                    <TextField
+                      label="Target Column"
+                      value={columnTargetColumnFilter}
+                      onChange={(e) => setColumnTargetColumnFilter(e.target.value)}
+                      size="small"
+                      sx={{ minWidth: 170 }}
+                    />
+                    <TextField
+                      label="Type"
+                      value={columnTypeFilter}
+                      onChange={(e) => setColumnTypeFilter(e.target.value)}
+                      size="small"
+                      sx={{ minWidth: 140 }}
+                    />
+                  </>
+                )}
+                {lineageView === 'business' && (
+                  <>
+                    <TextField
+                      label="Source Term"
+                      value={businessSourceFilter}
+                      onChange={(e) => setBusinessSourceFilter(e.target.value)}
+                      size="small"
+                      sx={{ minWidth: 180 }}
+                    />
+                    <TextField
+                      label="Target Term"
+                      value={businessTargetFilter}
+                      onChange={(e) => setBusinessTargetFilter(e.target.value)}
+                      size="small"
+                      sx={{ minWidth: 180 }}
+                    />
+                  </>
+                )}
+                <FormControl size="small" sx={{ minWidth: 160 }}>
+                  <InputLabel>Sort By</InputLabel>
+                  <Select
+                    label="Sort By"
+                    value={listSortKey}
+                    onChange={(e) => setListSortKey(e.target.value)}
+                  >
+                    {lineageView === 'asset' && (
+                      [
+                        { value: 'source', label: 'Source' },
+                        { value: 'target', label: 'Target' },
+                        { value: 'type', label: 'Transformation' },
+                        { value: 'sourceType', label: 'Source Type' },
+                        { value: 'targetType', label: 'Target Type' },
+                      ].map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))
+                    )}
+                    {lineageView === 'column' && (
+                      [
+                        { value: 'sourceAsset', label: 'Source Asset' },
+                        { value: 'sourceColumn', label: 'Source Column' },
+                        { value: 'targetAsset', label: 'Target Asset' },
+                        { value: 'targetColumn', label: 'Target Column' },
+                        { value: 'type', label: 'Transformation' },
+                        { value: 'confidence', label: 'Confidence' },
+                      ].map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))
+                    )}
+                    {lineageView === 'business' && (
+                      [
+                        { value: 'sourceTerm', label: 'Source Term' },
+                        { value: 'targetTerm', label: 'Target Term' },
+                        { value: 'strength', label: 'Strength' },
+                      ].map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))
+                    )}
+                  </Select>
+                </FormControl>
+                <FormControl size="small" sx={{ minWidth: 120 }}>
+                  <InputLabel>Order</InputLabel>
+                  <Select
+                    label="Order"
+                    value={listSortDirection}
+                    onChange={(e) => setListSortDirection(e.target.value as 'asc' | 'desc')}
+                  >
+                    <MenuItem value="asc">Asc</MenuItem>
+                    <MenuItem value="desc">Desc</MenuItem>
+                  </Select>
+                </FormControl>
+              </>
+            )}
 
             <Divider orientation="vertical" flexItem />
 
@@ -1469,6 +2103,182 @@ export default function LineagePage() {
                 No column lineage data found for this column.
               </Typography>
             </Box>
+          ) : lineageDisplayMode === 'list' ? (
+            <Box sx={{ height: '100%', overflow: 'auto', p: 2 }}>
+              {lineageView === 'asset' && assetListRows.length === 0 ? (
+                <Typography color="text.secondary">No lineage edges available for this asset.</Typography>
+              ) : null}
+              {lineageView === 'asset' && assetListRows.length > 0 && (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sortDirection={listSortKey === 'source' ? listSortDirection : false}>
+                        <TableSortLabel
+                          active={listSortKey === 'source'}
+                          direction={listSortKey === 'source' ? listSortDirection : 'asc'}
+                          onClick={() => handleListSort('source')}
+                        >
+                          Source
+                        </TableSortLabel>
+                      </TableCell>
+                      <TableCell sortDirection={listSortKey === 'target' ? listSortDirection : false}>
+                        <TableSortLabel
+                          active={listSortKey === 'target'}
+                          direction={listSortKey === 'target' ? listSortDirection : 'asc'}
+                          onClick={() => handleListSort('target')}
+                        >
+                          Target
+                        </TableSortLabel>
+                      </TableCell>
+                      <TableCell sortDirection={listSortKey === 'type' ? listSortDirection : false}>
+                        <TableSortLabel
+                          active={listSortKey === 'type'}
+                          direction={listSortKey === 'type' ? listSortDirection : 'asc'}
+                          onClick={() => handleListSort('type')}
+                        >
+                          Transformation
+                        </TableSortLabel>
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {assetListRows.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell>{row.sourceName}</TableCell>
+                        <TableCell>{row.targetName}</TableCell>
+                        <TableCell>{row.transformationType}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+              {lineageView === 'column' && columnListRows.length === 0 ? (
+                <Typography color="text.secondary">No column lineage edges available for this column.</Typography>
+              ) : null}
+              {lineageView === 'column' && columnListRows.length > 0 && (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sortDirection={listSortKey === 'sourceAsset' ? listSortDirection : false}>
+                        <TableSortLabel
+                          active={listSortKey === 'sourceAsset'}
+                          direction={listSortKey === 'sourceAsset' ? listSortDirection : 'asc'}
+                          onClick={() => handleListSort('sourceAsset')}
+                        >
+                          Source Asset
+                        </TableSortLabel>
+                      </TableCell>
+                      <TableCell sortDirection={listSortKey === 'sourceColumn' ? listSortDirection : false}>
+                        <TableSortLabel
+                          active={listSortKey === 'sourceColumn'}
+                          direction={listSortKey === 'sourceColumn' ? listSortDirection : 'asc'}
+                          onClick={() => handleListSort('sourceColumn')}
+                        >
+                          Source Column
+                        </TableSortLabel>
+                      </TableCell>
+                      <TableCell sortDirection={listSortKey === 'targetAsset' ? listSortDirection : false}>
+                        <TableSortLabel
+                          active={listSortKey === 'targetAsset'}
+                          direction={listSortKey === 'targetAsset' ? listSortDirection : 'asc'}
+                          onClick={() => handleListSort('targetAsset')}
+                        >
+                          Target Asset
+                        </TableSortLabel>
+                      </TableCell>
+                      <TableCell sortDirection={listSortKey === 'targetColumn' ? listSortDirection : false}>
+                        <TableSortLabel
+                          active={listSortKey === 'targetColumn'}
+                          direction={listSortKey === 'targetColumn' ? listSortDirection : 'asc'}
+                          onClick={() => handleListSort('targetColumn')}
+                        >
+                          Target Column
+                        </TableSortLabel>
+                      </TableCell>
+                      <TableCell sortDirection={listSortKey === 'type' ? listSortDirection : false}>
+                        <TableSortLabel
+                          active={listSortKey === 'type'}
+                          direction={listSortKey === 'type' ? listSortDirection : 'asc'}
+                          onClick={() => handleListSort('type')}
+                        >
+                          Transformation
+                        </TableSortLabel>
+                      </TableCell>
+                      <TableCell sortDirection={listSortKey === 'confidence' ? listSortDirection : false}>
+                        <TableSortLabel
+                          active={listSortKey === 'confidence'}
+                          direction={listSortKey === 'confidence' ? listSortDirection : 'asc'}
+                          onClick={() => handleListSort('confidence')}
+                        >
+                          Confidence
+                        </TableSortLabel>
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {columnListRows.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell>{row.sourceAssetName}</TableCell>
+                        <TableCell>{row.sourceColumn}</TableCell>
+                        <TableCell>{row.targetAssetName}</TableCell>
+                        <TableCell>{row.targetColumn}</TableCell>
+                        <TableCell>{row.transformationType}</TableCell>
+                        <TableCell>{row.confidence}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+              {lineageView === 'business' && businessListRows.length === 0 ? (
+                <Typography color="text.secondary">No business lineage edges available for this term.</Typography>
+              ) : null}
+              {lineageView === 'business' && businessListRows.length > 0 && (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sortDirection={listSortKey === 'sourceTerm' ? listSortDirection : false}>
+                        <TableSortLabel
+                          active={listSortKey === 'sourceTerm'}
+                          direction={listSortKey === 'sourceTerm' ? listSortDirection : 'asc'}
+                          onClick={() => handleListSort('sourceTerm')}
+                        >
+                          Source Term
+                        </TableSortLabel>
+                      </TableCell>
+                      <TableCell sortDirection={listSortKey === 'targetTerm' ? listSortDirection : false}>
+                        <TableSortLabel
+                          active={listSortKey === 'targetTerm'}
+                          direction={listSortKey === 'targetTerm' ? listSortDirection : 'asc'}
+                          onClick={() => handleListSort('targetTerm')}
+                        >
+                          Target Term
+                        </TableSortLabel>
+                      </TableCell>
+                      <TableCell sortDirection={listSortKey === 'strength' ? listSortDirection : false}>
+                        <TableSortLabel
+                          active={listSortKey === 'strength'}
+                          direction={listSortKey === 'strength' ? listSortDirection : 'asc'}
+                          onClick={() => handleListSort('strength')}
+                        >
+                          Strength
+                        </TableSortLabel>
+                      </TableCell>
+                      <TableCell>Asset Path</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {businessListRows.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell>{row.sourceTermName}</TableCell>
+                        <TableCell>{row.targetTermName}</TableCell>
+                        <TableCell>{row.strength}</TableCell>
+                        <TableCell>{row.assetPath}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </Box>
           ) : (
             <svg ref={svgRef} style={{ width: '100%', height: '100%' }} />
           )}
@@ -1527,6 +2337,68 @@ export default function LineagePage() {
           </Alert>
         )}
       </Card>
+
+      <Dialog open={manualDialogOpen} onClose={() => setManualDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Create Manual Lineage</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            {!searchResults || searchResults.length === 0 ? (
+              <Alert severity="warning">No assets available. Sync assets first.</Alert>
+            ) : (
+              <>
+                <Autocomplete
+                  options={searchResults}
+                  getOptionLabel={(option) => option.name}
+                  value={manualSource}
+                  onChange={(_, value) => setManualSource(value)}
+                  renderInput={(params) => <TextField {...params} label="Source Asset" />}
+                />
+                <Autocomplete
+                  options={searchResults}
+                  getOptionLabel={(option) => option.name}
+                  value={manualTarget}
+                  onChange={(_, value) => setManualTarget(value)}
+                  renderInput={(params) => <TextField {...params} label="Target Asset" />}
+                />
+                <FormControl>
+                  <InputLabel>Transformation Type</InputLabel>
+                  <Select
+                    value={manualType}
+                    label="Transformation Type"
+                    onChange={(event) => setManualType(event.target.value)}
+                  >
+                    {lineageTypeOptions.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <TextField
+                  label="Transformation Logic (optional)"
+                  multiline
+                  minRows={2}
+                  value={manualLogic}
+                  onChange={(event) => setManualLogic(event.target.value)}
+                />
+              </>
+            )}
+
+            {manualError && <Alert severity="error">{manualError}</Alert>}
+            {manualSuccess && <Alert severity="success">{manualSuccess}</Alert>}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setManualDialogOpen(false)}>Close</Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateManualLineage}
+            disabled={!searchResults || searchResults.length === 0 || createLineageMutation.isPending}
+          >
+            {createLineageMutation.isPending ? 'Creating...' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Business Term Detail Drawer */}
       <Drawer
@@ -1642,7 +2514,7 @@ export default function LineagePage() {
                       }
                       secondary={
                         <Typography variant="caption" color="text.secondary">
-                          Depth: {asset.depth} | Path: {asset.path.join(' → ')}
+                          Depth: {asset.depth} | Path: {formatImpactPath(asset.path)}
                         </Typography>
                       }
                     />

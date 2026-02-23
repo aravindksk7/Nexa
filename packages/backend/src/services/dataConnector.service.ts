@@ -1,6 +1,6 @@
 import { Pool as PgPool } from 'pg';
 import { createPool as createMySqlPool, Pool as MySqlPool } from 'mysql2/promise';
-import { Connection as TediousConnection, Request, TYPES } from 'tedious';
+import { Connection as TediousConnection, Request } from 'tedious';
 import { prisma } from '../lib/prisma.js';
 import { createChildLogger } from '../utils/logger.js';
 import { NotFoundError, ValidationError, AppError } from '../middleware/errorHandler.js';
@@ -47,6 +47,48 @@ interface TableSampleResult {
 }
 
 export class DataConnectorService {
+  /**
+   * Test connection parameters without persisting a connection
+   */
+  async testConnectionConfig(data: CreateConnection): Promise<ConnectionTestResult> {
+    const startTime = Date.now();
+
+    let result: ConnectionTestResult;
+
+    try {
+      const connection = {
+        host: data.host,
+        port: data.port,
+        database: data.database ?? null,
+        username: data.username ?? null,
+      };
+
+      switch (data.connectionType) {
+        case 'POSTGRESQL':
+          result = await this.testPostgresConnection(connection, data.password);
+          break;
+        case 'MYSQL':
+          result = await this.testMySqlConnection(connection, data.password);
+          break;
+        case 'SQLSERVER':
+          result = await this.testSqlServerConnection(connection, data.password);
+          break;
+        default:
+          throw new ValidationError(`Unsupported connection type: ${data.connectionType}`);
+      }
+
+      result.latencyMs = Date.now() - startTime;
+      return result;
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Connection failed',
+        error: (error as Error).message,
+        latencyMs: Date.now() - startTime,
+      };
+    }
+  }
+
   /**
    * Create a new data connection
    */
@@ -347,9 +389,14 @@ export class DataConnectorService {
       throw new NotFoundError('Connection', connectionId);
     }
 
+    const password = connection.encryptedPassword
+      ? this.decryptPassword(connection.encryptedPassword)
+      : undefined;
+
     const schema = await this.exploreSource(connectionId);
     let assetsCreated = 0;
     let assetsUpdated = 0;
+    const syncedAssetByPath = new Map<string, string>();
 
     for (const database of schema.databases) {
       for (const table of database.tables) {
@@ -374,6 +421,37 @@ export class DataConnectorService {
             { description: `Table from ${connection.name}` },
             userId
           );
+
+          // Refresh schema for existing asset
+          await catalogService.registerSchema(
+            existingAsset.assetId,
+            {
+              schemaFormat: 'JSON_SCHEMA',
+              schemaDefinition: {
+                type: 'object',
+                properties: table.columns.reduce(
+                  (acc, col) => ({
+                    ...acc,
+                    [col.name]: {
+                      type: this.mapSqlTypeToJsonType(col.dataType),
+                      nullable: col.nullable,
+                    },
+                  }),
+                  {}
+                ),
+              },
+            },
+            userId
+          );
+
+          // Update sync timestamp link
+          await prisma.connectionAsset.update({
+            where: { id: existingAsset.id },
+            data: { lastSyncedAt: new Date() },
+          });
+
+          syncedAssetByPath.set(fullName, existingAsset.assetId);
+
           assetsUpdated++;
         } else {
           // Create new asset
@@ -420,9 +498,15 @@ export class DataConnectorService {
             },
           });
 
+          syncedAssetByPath.set(fullName, asset.id);
+
           assetsCreated++;
         }
       }
+    }
+
+    if (connection.connectionType === 'SQLSERVER') {
+      await this.createSqlServerForeignKeyLineage(connection, password, syncedAssetByPath);
     }
 
     logger.info({ connectionId, assetsCreated, assetsUpdated }, 'Metadata extracted');
@@ -431,6 +515,88 @@ export class DataConnectorService {
     await this.recordSyncHistory(connectionId, assetsCreated, assetsUpdated, incremental);
 
     return { assetsCreated, assetsUpdated };
+  }
+
+  private async createSqlServerForeignKeyLineage(
+    connection: {
+      id: string;
+      host: string;
+      port: number;
+      database: string | null;
+      username: string | null;
+    },
+    password: string | undefined,
+    syncedAssetByPath: Map<string, string>
+  ): Promise<void> {
+    const fkRows = await this.executeSqlServerQuery(
+      connection,
+      password,
+      `
+      SELECT
+        DB_NAME() AS database_name,
+        parent_schema.name AS parent_schema,
+        parent_table.name AS parent_table,
+        child_schema.name AS child_schema,
+        child_table.name AS child_table,
+        fk.name AS constraint_name
+      FROM sys.foreign_keys fk
+      INNER JOIN sys.tables child_table
+        ON fk.parent_object_id = child_table.object_id
+      INNER JOIN sys.schemas child_schema
+        ON child_table.schema_id = child_schema.schema_id
+      INNER JOIN sys.tables parent_table
+        ON fk.referenced_object_id = parent_table.object_id
+      INNER JOIN sys.schemas parent_schema
+        ON parent_table.schema_id = parent_schema.schema_id
+      ORDER BY parent_schema.name, parent_table.name, child_schema.name, child_table.name
+      `
+    );
+
+    for (const row of fkRows) {
+      const dbName = String(row['database_name'] ?? connection.database ?? 'master');
+      const parentPath = `${dbName}.${String(row['parent_schema'])}.${String(row['parent_table'])}`;
+      const childPath = `${dbName}.${String(row['child_schema'])}.${String(row['child_table'])}`;
+
+      const sourceAssetId = syncedAssetByPath.get(parentPath);
+      const targetAssetId = syncedAssetByPath.get(childPath);
+
+      if (!sourceAssetId || !targetAssetId || sourceAssetId === targetAssetId) {
+        continue;
+      }
+
+      await prisma.lineageEdge.upsert({
+        where: {
+          sourceAssetId_targetAssetId: {
+            sourceAssetId,
+            targetAssetId,
+          },
+        },
+        update: {
+          transformationType: 'FOREIGN_KEY',
+          transformationLogic: `Foreign key dependency: ${String(row['constraint_name'] ?? 'unknown_constraint')}`,
+          metadata: {
+            source: 'SQLSERVER_METADATA_SYNC',
+            relationship: 'FOREIGN_KEY',
+            constraintName: String(row['constraint_name'] ?? ''),
+            parentPath,
+            childPath,
+          },
+        },
+        create: {
+          sourceAssetId,
+          targetAssetId,
+          transformationType: 'FOREIGN_KEY',
+          transformationLogic: `Foreign key dependency: ${String(row['constraint_name'] ?? 'unknown_constraint')}`,
+          metadata: {
+            source: 'SQLSERVER_METADATA_SYNC',
+            relationship: 'FOREIGN_KEY',
+            constraintName: String(row['constraint_name'] ?? ''),
+            parentPath,
+            childPath,
+          },
+        },
+      });
+    }
   }
 
   /**
@@ -760,8 +926,162 @@ export class DataConnectorService {
     connection: { host: string; port: number; database: string | null; username: string | null },
     password?: string
   ): Promise<SourceSchema> {
-    // Simplified implementation - return empty for now
-    return { databases: [] };
+    const rows = await this.executeSqlServerQuery(
+      connection,
+      password,
+      `
+      SELECT
+        c.TABLE_CATALOG AS database_name,
+        c.TABLE_SCHEMA AS schema_name,
+        c.TABLE_NAME AS table_name,
+        c.COLUMN_NAME AS column_name,
+        c.DATA_TYPE AS data_type,
+        c.IS_NULLABLE AS is_nullable,
+        c.COLUMN_DEFAULT AS column_default,
+        CASE WHEN tc.CONSTRAINT_TYPE = 'PRIMARY KEY' THEN 1 ELSE 0 END AS is_primary_key
+      FROM INFORMATION_SCHEMA.COLUMNS c
+      INNER JOIN INFORMATION_SCHEMA.TABLES t
+        ON t.TABLE_CATALOG = c.TABLE_CATALOG
+        AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
+        AND t.TABLE_NAME = c.TABLE_NAME
+      LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+        ON kcu.TABLE_CATALOG = c.TABLE_CATALOG
+        AND kcu.TABLE_SCHEMA = c.TABLE_SCHEMA
+        AND kcu.TABLE_NAME = c.TABLE_NAME
+        AND kcu.COLUMN_NAME = c.COLUMN_NAME
+      LEFT JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+        ON tc.CONSTRAINT_CATALOG = kcu.CONSTRAINT_CATALOG
+        AND tc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
+        AND tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+        AND tc.TABLE_CATALOG = kcu.TABLE_CATALOG
+        AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+        AND tc.TABLE_NAME = kcu.TABLE_NAME
+      WHERE c.TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA', 'sys')
+        AND t.TABLE_TYPE = 'BASE TABLE'
+      ORDER BY c.TABLE_CATALOG, c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION
+      `
+    );
+
+    const databaseMap = new Map<string, DatabaseSchema>();
+    const tableMap = new Map<string, TableSchema>();
+
+    for (const row of rows) {
+      const databaseName = String(row['database_name'] ?? connection.database ?? 'master');
+      const schemaName = String(row['schema_name'] ?? 'dbo');
+      const tableName = String(row['table_name'] ?? '');
+
+      if (!tableName) {
+        continue;
+      }
+
+      if (!databaseMap.has(databaseName)) {
+        databaseMap.set(databaseName, {
+          name: databaseName,
+          tables: [],
+        });
+      }
+
+      const tableKey = `${databaseName}.${schemaName}.${tableName}`;
+
+      if (!tableMap.has(tableKey)) {
+        const table: TableSchema = {
+          name: tableName,
+          schema: schemaName,
+          columns: [],
+        };
+
+        tableMap.set(tableKey, table);
+        databaseMap.get(databaseName)!.tables.push(table);
+      }
+
+      const columnDefault = row['column_default'];
+
+      tableMap.get(tableKey)!.columns.push({
+        name: String(row['column_name'] ?? ''),
+        dataType: String(row['data_type'] ?? 'nvarchar'),
+        nullable: String(row['is_nullable'] ?? 'YES').toUpperCase() === 'YES',
+        primaryKey: Number(row['is_primary_key'] ?? 0) === 1,
+        ...(columnDefault !== null && columnDefault !== undefined
+          ? { defaultValue: String(columnDefault) }
+          : {}),
+      });
+    }
+
+    return { databases: Array.from(databaseMap.values()) };
+  }
+
+  private async executeSqlServerQuery(
+    connection: { host: string; port: number; database: string | null; username: string | null },
+    password: string | undefined,
+    sql: string
+  ): Promise<Array<Record<string, unknown>>> {
+    return new Promise((resolve, reject) => {
+      const rows: Array<Record<string, unknown>> = [];
+      let settled = false;
+
+      const finishWithError = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
+
+      const finishSuccess = () => {
+        if (settled) return;
+        settled = true;
+        resolve(rows);
+      };
+
+      const tediousConnection = new TediousConnection({
+        server: connection.host,
+        options: {
+          port: connection.port,
+          database: connection.database ?? undefined,
+          trustServerCertificate: true,
+          connectTimeout: 5000,
+        },
+        authentication: {
+          type: 'default',
+          options: {
+            userName: connection.username ?? undefined,
+            password,
+          },
+        },
+      });
+
+      tediousConnection.on('connect', err => {
+        if (err) {
+          finishWithError(err);
+          return;
+        }
+
+        const request = new Request(sql, requestError => {
+          tediousConnection.close();
+
+          if (requestError) {
+            finishWithError(requestError);
+            return;
+          }
+
+          finishSuccess();
+        });
+
+        request.on('row', columns => {
+          const row: Record<string, unknown> = {};
+          for (const column of columns) {
+            row[column.metadata.colName] = column.value;
+          }
+          rows.push(row);
+        });
+
+        tediousConnection.execSql(request);
+      });
+
+      tediousConnection.on('error', err => {
+        finishWithError(err as Error);
+      });
+
+      tediousConnection.connect();
+    });
   }
 
   // =====================

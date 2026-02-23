@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Box,
   Typography,
@@ -50,9 +51,12 @@ interface UploadResponse {
 
 export default function UploadPage() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadResult, setUploadResult] = useState<UploadResponse | null>(null);
+  const [createAssetMessage, setCreateAssetMessage] = useState<string | null>(null);
+  const [createAssetError, setCreateAssetError] = useState<string | null>(null);
 
   const uploadMutation = useMutation({
     mutationFn: (file: File) => api.upload<UploadResponse>('/files/upload', file),
@@ -65,9 +69,16 @@ export default function UploadPage() {
   const createAssetMutation = useMutation({
     mutationFn: (data: { fileId: string; assetName: string }) =>
       api.post<{ assetId: string }>(`/files/${data.fileId}/create-asset`, { assetName: data.assetName }),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      setCreateAssetError(null);
+      setCreateAssetMessage(`Asset created successfully (ID: ${result.assetId}).`);
       setUploadResult(null);
       setSelectedFile(null);
+      router.push(`/catalog/${result.assetId}`);
+    },
+    onError: (error) => {
+      setCreateAssetMessage(null);
+      setCreateAssetError(error instanceof Error ? error.message : 'Failed to create asset');
     },
   });
 
@@ -139,6 +150,18 @@ export default function UploadPage() {
       <Typography variant="h4" fontWeight={700} sx={{ mb: 4 }}>
         File Upload
       </Typography>
+
+      {createAssetMessage && (
+        <Alert severity="success" sx={{ mb: 3 }}>
+          {createAssetMessage}
+        </Alert>
+      )}
+
+      {createAssetError && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {createAssetError}
+        </Alert>
+      )}
 
       {/* Upload Area */}
       <Card sx={{ mb: 3 }}>
@@ -309,13 +332,21 @@ export default function UploadPage() {
                   <TableBody>
                     {uploadResult.parseResult.sampleData.slice(0, 5).map((row, i) => (
                       <TableRow key={i}>
-                        {row.map((cell, j) => (
-                          <TableCell key={j}>
-                            <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                              {cell}
-                            </Typography>
-                          </TableCell>
-                        ))}
+                        {Array.isArray(row)
+                          ? row.map((cell, j) => (
+                              <TableCell key={j}>
+                                <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                                  {cell}
+                                </Typography>
+                              </TableCell>
+                            ))
+                          : uploadResult.parseResult.columns.map((col) => (
+                              <TableCell key={col.name}>
+                                <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                                  {String((row as Record<string, unknown>)[col.name] ?? '')}
+                                </Typography>
+                              </TableCell>
+                            ))}
                       </TableRow>
                     ))}
                   </TableBody>

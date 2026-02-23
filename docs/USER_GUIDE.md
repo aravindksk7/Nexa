@@ -85,7 +85,7 @@ cd Nexa
 # 2. Copy the example environment file and edit as needed
 cp .env.example .env
 
-# 3. Start PostgreSQL and Redis with Docker
+# 3. Start PostgreSQL with Docker
 docker-compose up -d
 
 # 4. Install all dependencies (monorepo workspaces)
@@ -774,9 +774,6 @@ Copy `.env.example` to `.env` and configure the following variables:
 | `POSTGRES_HOST` | `localhost` | Database host |
 | `POSTGRES_PORT` | `5432` | Database port |
 | `DATABASE_URL` | (composed from above) | Full Prisma connection URL |
-| `REDIS_HOST` | `localhost` | Redis host |
-| `REDIS_PORT` | `6379` | Redis port |
-| `REDIS_URL` | `redis://localhost:6379` | Full Redis URL |
 | `JWT_SECRET` | — | Secret for signing access tokens (**change in production**) |
 | `JWT_EXPIRES_IN` | `1h` | Access token lifetime |
 | `JWT_REFRESH_SECRET` | — | Secret for signing refresh tokens (**change in production**) |
@@ -796,14 +793,13 @@ Copy `.env.example` to `.env` and configure the following variables:
 
 ### Docker Services
 
-The `docker-compose.yml` starts two containers:
+The `docker-compose.yml` starts one container:
 
 | Service | Image | Port | Purpose |
 |---------|-------|------|---------|
 | `dmp-postgres` | `postgres:16-alpine` | 5432 | Primary database |
-| `dmp-redis` | `redis:7-alpine` | 6379 | Caching and sessions |
 
-Both containers include health checks and persistent volumes.
+The container includes health checks and persistent volumes.
 
 ---
 

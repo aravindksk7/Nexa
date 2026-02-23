@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import * as argon2 from 'argon2';
+import { hashPassword } from '../src/utils/password.js';
 
 const prisma = new PrismaClient();
 
@@ -7,19 +7,9 @@ async function main() {
   console.log('🌱 Starting database seed...');
 
   // Create test users
-  const adminPassword = await argon2.hash('Admin@123456', {
-    type: argon2.argon2id,
-    memoryCost: 65536,
-    timeCost: 3,
-    parallelism: 4,
-  });
+  const adminPassword = await hashPassword('Admin@123456');
 
-  const analystPassword = await argon2.hash('Analyst@123456', {
-    type: argon2.argon2id,
-    memoryCost: 65536,
-    timeCost: 3,
-    parallelism: 4,
-  });
+  const analystPassword = await hashPassword('Analyst@123456');
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@nexa.io' },

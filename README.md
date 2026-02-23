@@ -84,6 +84,7 @@ The frontend will be available at `http://localhost:3000` and the API at `http:/
 ## Documentation
 
 - User Guide: `docs/USER_GUIDE.md`
+- Product Roadmap: `docs/ROADMAP.md`
 - Comprehensive Test Report: `COMPREHENSIVE_TEST_REPORT.md`
 
 ## API Modules

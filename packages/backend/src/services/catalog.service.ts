@@ -63,7 +63,7 @@ export class CatalogService {
     const asset = await prisma.asset.findUnique({
       where: { id: assetId },
       include: {
-        owner: { select: { id: true, username: true, email: true } },
+        owner: { select: { id: true, username: true, email: true, firstName: true, lastName: true } },
       },
     });
 
@@ -88,13 +88,17 @@ export class CatalogService {
 
     const newVersion = existingAsset.version + 1;
 
+    const { tags, ...updateFields } = data;
+    const updateData = {
+      ...updateFields,
+      ...(tags !== undefined ? { tags: { set: tags } } : {}),
+      version: newVersion,
+      updatedById: userId,
+    };
+
     const asset = await prisma.asset.update({
       where: { id: assetId },
-      data: {
-        ...data,
-        version: newVersion,
-        updatedById: userId,
-      },
+      data: updateData,
     });
 
     // Create version entry
@@ -196,7 +200,7 @@ export class CatalogService {
         take: limit,
         orderBy: { updatedAt: 'desc' },
         include: {
-          owner: { select: { id: true, username: true } },
+          owner: { select: { id: true, username: true, email: true, firstName: true, lastName: true } },
         },
       }),
       prisma.asset.count({ where }),
@@ -489,6 +493,13 @@ export class CatalogService {
     updatedAt: Date;
     createdById: string;
     updatedById: string;
+    owner?: {
+      id: string;
+      username: string;
+      email: string;
+      firstName?: string | null;
+      lastName?: string | null;
+    } | null;
   }): Asset {
     return {
       id: asset.id,
@@ -496,6 +507,7 @@ export class CatalogService {
       description: asset.description ?? undefined,
       assetType: asset.assetType as Asset['assetType'],
       ownerId: asset.ownerId,
+      owner: asset.owner ?? undefined,
       domain: asset.domain ?? undefined,
       tags: asset.tags,
       customProperties: asset.customProperties as Record<string, unknown> | undefined,

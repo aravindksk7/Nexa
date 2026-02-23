@@ -13,11 +13,6 @@ const envSchema = z.object({
   POSTGRES_PASSWORD: z.string().default('dmp_password'),
   POSTGRES_DB: z.string().default('data_management_platform'),
 
-  // Redis
-  REDIS_URL: z.string().default('redis://localhost:6379'),
-  REDIS_HOST: z.string().default('localhost'),
-  REDIS_PORT: z.coerce.number().default(6379),
-
   // JWT
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: z.string().default('1h'),
@@ -54,11 +49,6 @@ export const config = {
     user: parsed.data.POSTGRES_USER,
     password: parsed.data.POSTGRES_PASSWORD,
     database: parsed.data.POSTGRES_DB,
-  },
-  redis: {
-    url: parsed.data.REDIS_URL,
-    host: parsed.data.REDIS_HOST,
-    port: parsed.data.REDIS_PORT,
   },
   jwt: {
     secret: parsed.data.JWT_SECRET,

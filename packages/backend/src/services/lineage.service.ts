@@ -11,6 +11,7 @@ import type {
   LineageGraphEdge,
   ImpactAnalysisResult,
   ImpactedAsset,
+  ImpactPathStep,
   OpenLineageEvent,
   AssetType,
 } from '../models/index.js';
@@ -267,8 +268,15 @@ export class LineageService {
     const graph = await this.buildLineageGraph();
     const impactedAssets: ImpactedAsset[] = [];
     const visited = new Set<string>();
+    const assetCache = new Map<string, { id: string; name: string; assetType: AssetType }>();
 
-    await this.findImpactedAssets(graph, assetId, 0, maxDepth, [], impactedAssets, visited);
+    assetCache.set(asset.id, {
+      id: asset.id,
+      name: asset.name,
+      assetType: asset.assetType as AssetType,
+    });
+
+    await this.findImpactedAssets(graph, assetId, 0, maxDepth, [], impactedAssets, visited, assetCache);
 
     // Calculate counts by type
     const countByType: Record<AssetType, number> = {} as Record<AssetType, number>;
@@ -396,33 +404,67 @@ export class LineageService {
     nodeId: string,
     currentDepth: number,
     maxDepth: number,
-    path: string[],
+    path: ImpactPathStep[],
     impacted: ImpactedAsset[],
-    visited: Set<string>
+    visited: Set<string>,
+    assetCache: Map<string, { id: string; name: string; assetType: AssetType }>,
+    incomingTransformationType?: string
   ): Promise<void> {
     if (currentDepth > maxDepth || visited.has(nodeId)) {
       return;
     }
 
     visited.add(nodeId);
-    const currentPath = [...path, nodeId];
+    let asset = assetCache.get(nodeId);
+    if (!asset) {
+      const dbAsset = await prisma.asset.findUnique({ where: { id: nodeId } });
+      if (dbAsset) {
+        asset = {
+          id: dbAsset.id,
+          name: dbAsset.name,
+          assetType: dbAsset.assetType as AssetType,
+        };
+        assetCache.set(nodeId, asset);
+      } else {
+        asset = { id: nodeId, name: nodeId, assetType: 'OTHER' };
+        assetCache.set(nodeId, asset);
+      }
+    }
+
+    const currentPath = [
+      ...path,
+      {
+        assetId: asset.id,
+        assetName: asset.name,
+        assetType: asset.assetType,
+        ...(incomingTransformationType ? { transformationType: incomingTransformationType } : {}),
+      },
+    ];
 
     if (currentDepth > 0) {
-      const asset = await prisma.asset.findUnique({ where: { id: nodeId } });
-      if (asset) {
-        impacted.push({
-          id: asset.id,
-          name: asset.name,
-          assetType: asset.assetType as AssetType,
-          depth: currentDepth,
-          path: currentPath,
-        });
-      }
+      impacted.push({
+        id: asset.id,
+        name: asset.name,
+        assetType: asset.assetType,
+        depth: currentDepth,
+        path: currentPath,
+      });
     }
 
     const successors = graph.successors(nodeId) ?? [];
     for (const succId of successors) {
-      await this.findImpactedAssets(graph, succId, currentDepth + 1, maxDepth, currentPath, impacted, visited);
+      const edgeData = graph.edge(nodeId, succId);
+      await this.findImpactedAssets(
+        graph,
+        succId,
+        currentDepth + 1,
+        maxDepth,
+        currentPath,
+        impacted,
+        visited,
+        assetCache,
+        edgeData?.transformationType ?? 'UNKNOWN'
+      );
     }
   }
 

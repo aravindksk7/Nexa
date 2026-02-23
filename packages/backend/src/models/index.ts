@@ -68,6 +68,13 @@ export const AssetSchema = z.object({
   description: z.string().optional(),
   assetType: AssetTypeEnum,
   ownerId: z.string().uuid(),
+  owner: UserSchema.pick({
+    id: true,
+    username: true,
+    email: true,
+    firstName: true,
+    lastName: true,
+  }).optional(),
   domain: z.string().optional(),
   tags: z.array(z.string()).default([]),
   customProperties: z.record(z.any()).optional(),
@@ -93,7 +100,15 @@ export const CreateAssetSchema = z.object({
 
 export type CreateAsset = z.infer<typeof CreateAssetSchema>;
 
-export const UpdateAssetSchema = CreateAssetSchema.partial();
+export const UpdateAssetSchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().optional(),
+  assetType: AssetTypeEnum.optional(),
+  ownerId: z.string().uuid().optional(),
+  domain: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  customProperties: z.record(z.any()).optional(),
+});
 export type UpdateAsset = z.infer<typeof UpdateAssetSchema>;
 
 // =====================
@@ -175,12 +190,19 @@ export interface ImpactAnalysisResult {
   countByType: Record<AssetType, number>;
 }
 
+export interface ImpactPathStep {
+  assetId: string;
+  assetName: string;
+  assetType: AssetType;
+  transformationType?: string;
+}
+
 export interface ImpactedAsset {
   id: string;
   name: string;
   assetType: AssetType;
   depth: number;
-  path: string[];
+  path: ImpactPathStep[];
 }
 
 // =====================

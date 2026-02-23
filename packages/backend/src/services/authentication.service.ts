@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/index.js';
 import { prisma } from '../lib/prisma.js';
 import { createChildLogger } from '../utils/logger.js';
+import { hashPassword } from '../utils/password.js';
 import { UnauthorizedError, ValidationError, ConflictError, NotFoundError } from '../middleware/errorHandler.js';
 import type { User, CreateUser, LoginInput, Role } from '../models/index.js';
 
@@ -50,12 +51,7 @@ export class AuthenticationService {
     this.validatePasswordComplexity(data.password);
 
     // Hash password using Argon2id (recommended for password hashing)
-    const passwordHash = await argon2.hash(data.password, {
-      type: argon2.argon2id,
-      memoryCost: 65536,
-      timeCost: 3,
-      parallelism: 4,
-    });
+    const passwordHash = await hashPassword(data.password);
 
     // Create user
     const user = await prisma.user.create({
@@ -223,12 +219,7 @@ export class AuthenticationService {
     this.validatePasswordComplexity(newPassword);
 
     // Hash and update password
-    const passwordHash = await argon2.hash(newPassword, {
-      type: argon2.argon2id,
-      memoryCost: 65536,
-      timeCost: 3,
-      parallelism: 4,
-    });
+    const passwordHash = await hashPassword(newPassword);
     await prisma.user.update({
       where: { id: userId },
       data: { passwordHash },

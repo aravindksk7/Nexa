@@ -154,6 +154,8 @@ export default function ConnectionsPage() {
   });
 
   const connectionType = watch('type');
+  const isSqlServerExplore =
+    (exploringConnection?.type ?? exploringConnection?.connectionType) === 'SQLSERVER';
 
   const { data: connections, isLoading } = useQuery<Connection[]>({
     queryKey: ['connections'],
@@ -171,18 +173,26 @@ export default function ConnectionsPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: object) => api.post('/connections', data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['connections'] });
-      handleCloseDialog();
+    mutationFn: (data: object) => api.post<{ connection: Connection }>('/connections', data),
+    onSuccess: async (response) => {
+      try {
+        await api.post(`/connections/${response.connection.id}/test`);
+      } finally {
+        queryClient.invalidateQueries({ queryKey: ['connections'] });
+        handleCloseDialog();
+      }
     },
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: { id: string; payload: object }) => api.put(`/connections/${data.id}`, data.payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['connections'] });
-      handleCloseDialog();
+    mutationFn: (data: { id: string; payload: object }) => api.put<{ connection: Connection }>(`/connections/${data.id}`, data.payload),
+    onSuccess: async (response) => {
+      try {
+        await api.post(`/connections/${response.connection.id}/test`);
+      } finally {
+        queryClient.invalidateQueries({ queryKey: ['connections'] });
+        handleCloseDialog();
+      }
     },
   });
 
@@ -214,7 +224,10 @@ export default function ConnectionsPage() {
   // Schema exploration query
   const { data: schemaData, isLoading: schemaLoading } = useQuery<SourceSchema>({
     queryKey: ['connection-schema', exploringConnection?.id],
-    queryFn: () => api.get<SourceSchema>(`/connections/${exploringConnection!.id}/explore`),
+    queryFn: async () => {
+      const response = await api.get<{ schema: SourceSchema }>(`/connections/${exploringConnection!.id}/explore`);
+      return response.schema;
+    },
     enabled: !!exploringConnection && exploreDialogOpen,
   });
 
@@ -233,7 +246,7 @@ export default function ConnectionsPage() {
 
       return response.preview;
     },
-    enabled: !!exploringConnection && !!selectedSampleTarget && exploreDialogOpen,
+    enabled: !!exploringConnection && !!selectedSampleTarget && exploreDialogOpen && !isSqlServerExplore,
   });
 
   // Sync info query (last sync and exploration info)
@@ -746,7 +759,7 @@ export default function ConnectionsPage() {
                     },
                   }}
                 >
-                  {schemaData.databases.map((db: DatabaseSchema) => (
+                  {(schemaData.databases ?? []).map((db: DatabaseSchema) => (
                     <TreeItem
                       key={`db-${db.name}`}
                       itemId={`db-${db.name}`}
@@ -848,7 +861,11 @@ export default function ConnectionsPage() {
                   />
                 </Box>
 
-                {!selectedSampleTarget ? (
+                {isSqlServerExplore ? (
+                  <Alert severity="info">
+                    Table sampling preview is currently supported for PostgreSQL and MySQL connections only.
+                  </Alert>
+                ) : !selectedSampleTarget ? (
                   <Alert severity="info">Select a table from the schema tree to preview sampled rows.</Alert>
                 ) : sampleLoading ? (
                   <Box sx={{ display: 'flex', alignItems: 'center', py: 3 }}>

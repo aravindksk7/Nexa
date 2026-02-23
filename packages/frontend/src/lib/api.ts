@@ -39,6 +39,9 @@ async function refreshAccessToken(): Promise<string | null> {
   } catch {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
     return null;
   }
 }
@@ -66,7 +69,7 @@ async function request<T>(
   let response = await fetch(`${API_BASE_URL}${endpoint}`, fetchConfig);
 
   // Handle token refresh on 401
-  if (response.status === 401 && accessToken) {
+  if (response.status === 401) {
     const newToken = await refreshAccessToken();
     if (newToken) {
       (headers as Record<string, string>)['Authorization'] = `Bearer ${newToken}`;
@@ -74,6 +77,8 @@ async function request<T>(
         ...fetchConfig,
         headers,
       });
+    } else if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('auth:unauthorized'));
     }
   }
 
@@ -82,6 +87,9 @@ async function request<T>(
   const responseData = isJson ? await response.json() : await response.text();
 
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
     throw new ApiError(
       response.status,
       responseData.message || responseData.error?.message || 'An error occurred',

@@ -34,6 +34,32 @@ connectionsRouter.post(
   })
 );
 
+// POST /api/v1/connections/test - Test connection details before saving
+connectionsRouter.post(
+  '/test',
+  validate([
+    body('name').optional().isString(),
+    body('connectionType').notEmpty().withMessage('Connection type is required'),
+    body('host').notEmpty().withMessage('Host is required'),
+    body('port').isInt({ min: 1, max: 65535 }).withMessage('Valid port is required'),
+    body('username').optional().isString(),
+    body('password').optional().isString(),
+    body('database').optional().isString(),
+    body('description').optional().isString(),
+    body('additionalConfig').optional().isObject(),
+  ]),
+  asyncHandler(async (req, res) => {
+    const payload = {
+      name: req.body.name ?? 'Connection Test',
+      ...req.body,
+    };
+
+    const data = CreateConnectionSchema.parse(payload);
+    const result = await dataConnectorService.testConnectionConfig(data);
+    res.json(result);
+  })
+);
+
 // GET /api/v1/connections/:id - Get a connection
 connectionsRouter.get(
   '/:id',

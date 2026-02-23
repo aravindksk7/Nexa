@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Box,
@@ -91,7 +91,12 @@ export default function AssetEditPage({ params }: AssetEditPageProps) {
     },
   });
 
-  const tags = watch('tags');
+  const tags = watch('tags', []);
+  const [initialTags, setInitialTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const hasTagChanges = useMemo(() => {
+    return JSON.stringify(tags ?? []) !== JSON.stringify(initialTags);
+  }, [tags, initialTags]);
 
   // Populate form when asset data is loaded
   useEffect(() => {
@@ -104,6 +109,7 @@ export default function AssetEditPage({ params }: AssetEditPageProps) {
         ownerId: data.asset.ownerId || '',
         tags: data.asset.tags || [],
       });
+      setInitialTags(data.asset.tags || []);
     }
   }, [data, reset]);
 
@@ -115,7 +121,7 @@ export default function AssetEditPage({ params }: AssetEditPageProps) {
         description: formData.description || undefined,
         domain: formData.domain || undefined,
         ownerId: formData.ownerId || undefined,
-        tags: formData.tags,
+        tags: tags ?? [],
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['asset', id] });
@@ -128,15 +134,17 @@ export default function AssetEditPage({ params }: AssetEditPageProps) {
     updateMutation.mutate(formData);
   };
 
-  const handleAddTag = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
+  const handleAddTag = (event?: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event && event.key !== 'Enter') {
+      return;
+    }
+    if (event) {
       event.preventDefault();
-      const input = event.target as HTMLInputElement;
-      const newTag = input.value.trim();
-      if (newTag && !tags.includes(newTag)) {
-        setValue('tags', [...tags, newTag], { shouldDirty: true });
-        input.value = '';
-      }
+    }
+    const newTag = tagInput.trim();
+    if (newTag && !tags.includes(newTag)) {
+      setValue('tags', [...tags, newTag], { shouldDirty: true, shouldTouch: true });
+      setTagInput('');
     }
   };
 
@@ -144,7 +152,7 @@ export default function AssetEditPage({ params }: AssetEditPageProps) {
     setValue(
       'tags',
       tags.filter((tag) => tag !== tagToRemove),
-      { shouldDirty: true }
+      { shouldDirty: true, shouldTouch: true }
     );
   };
 
@@ -310,12 +318,22 @@ export default function AssetEditPage({ params }: AssetEditPageProps) {
                   <Typography variant="subtitle2" gutterBottom>
                     Tags
                   </Typography>
-                  <TextField
-                    placeholder="Type a tag and press Enter"
-                    fullWidth
-                    onKeyDown={handleAddTag}
-                    sx={{ mb: 1 }}
-                  />
+                  <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                    <TextField
+                      placeholder="Type a tag and press Enter"
+                      fullWidth
+                      value={tagInput}
+                      onChange={(event) => setTagInput(event.target.value)}
+                      onKeyDown={handleAddTag}
+                    />
+                    <Button
+                      variant="outlined"
+                      onClick={() => handleAddTag()}
+                      disabled={!tagInput.trim()}
+                    >
+                      Add
+                    </Button>
+                  </Box>
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                     {tags.map((tag) => (
                       <Chip
@@ -339,7 +357,7 @@ export default function AssetEditPage({ params }: AssetEditPageProps) {
                   <Button
                     type="submit"
                     variant="contained"
-                    disabled={updateMutation.isPending || !isDirty}
+                    disabled={updateMutation.isPending || (!isDirty && !hasTagChanges)}
                   >
                     {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
                   </Button>
