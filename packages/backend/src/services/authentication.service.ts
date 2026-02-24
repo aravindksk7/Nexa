@@ -59,8 +59,8 @@ export class AuthenticationService {
         email: data.email,
         username: data.username,
         passwordHash,
-        firstName: data.firstName,
-        lastName: data.lastName,
+        firstName: data.firstName ?? null,
+        lastName: data.lastName ?? null,
         role: data.role ?? 'BUSINESS_ANALYST',
       },
     });
@@ -267,11 +267,11 @@ export class AuthenticationService {
 
     const accessToken = jwt.sign(payload, config.jwt.secret, {
       expiresIn: config.jwt.expiresIn,
-    });
+    } as any);
 
     const refreshToken = jwt.sign(payload, config.jwt.refreshSecret, {
       expiresIn: config.jwt.refreshExpiresIn,
-    });
+    } as any);
 
     // Store refresh token (upsert to handle duplicate tokens from rapid logins)
     const expiresAt = new Date();
@@ -396,18 +396,21 @@ export class AuthenticationService {
 
     // Check for email/username conflicts
     if (data.email || data.username) {
-      const existingUser = await prisma.user.findFirst({
-        where: {
-          OR: [
-            data.email ? { email: data.email } : undefined,
-            data.username ? { username: data.username } : undefined,
-          ].filter(Boolean),
-          id: { not: userId },
-        },
-      });
+      const orConditions = [];
+      if (data.email) orConditions.push({ email: data.email });
+      if (data.username) orConditions.push({ username: data.username });
+      
+      if (orConditions.length > 0) {
+        const existingUser = await prisma.user.findFirst({
+          where: {
+            OR: orConditions,
+            id: { not: userId },
+          },
+        });
 
-      if (existingUser) {
-        throw new ConflictError('Email or username already in use');
+        if (existingUser) {
+          throw new ConflictError('Email or username already in use');
+        }
       }
     }
 

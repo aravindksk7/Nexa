@@ -24,37 +24,25 @@ searchRouter.get(
     query('sortOrder').optional().isIn(['asc', 'desc']),
   ]),
   asyncHandler(async (req, res) => {
-    const {
-      q,
-      page = 1,
-      pageSize = 20,
-      assetTypes,
-      owners,
-      tags,
-      domains,
-      sortBy = 'relevance',
-      sortOrder = 'desc',
-    } = req.query as {
-      q: string;
-      page?: number;
-      pageSize?: number;
-      assetTypes?: string;
-      owners?: string;
-      tags?: string;
-      domains?: string;
-      sortBy?: 'relevance' | 'name' | 'createdAt' | 'updatedAt';
-      sortOrder?: 'asc' | 'desc';
-    };
+    const q = String(req.query['q'] || '');
+    const page = Math.max(1, parseInt(String(req.query['page'] ?? 1), 10));
+    const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query['pageSize'] ?? 20), 10)));
+    const assetTypesStr = req.query['assetTypes'];
+    const ownersStr = req.query['owners'];
+    const tagsStr = req.query['tags'];
+    const domainsStr = req.query['domains'];
+    const sortByStr = req.query['sortBy'] || 'relevance';
+    const sortOrderStr = req.query['sortOrder'] || 'desc';
 
     const result = await searchService.search(q, {
-      page: Number(page),
-      pageSize: Number(pageSize),
-      assetTypes: assetTypes ? (assetTypes.split(',') as AssetType[]) : undefined,
-      owners: owners ? owners.split(',') : undefined,
-      tags: tags ? tags.split(',') : undefined,
-      domains: domains ? domains.split(',') : undefined,
-      sortBy,
-      sortOrder,
+      page,
+      pageSize,
+      assetTypes: typeof assetTypesStr === 'string' ? (assetTypesStr.split(',') as AssetType[]) : [],
+      owners: typeof ownersStr === 'string' ? ownersStr.split(',') : [],
+      tags: typeof tagsStr === 'string' ? tagsStr.split(',') : [],
+      domains: typeof domainsStr === 'string' ? domainsStr.split(',') : [],
+      sortBy: (typeof sortByStr === 'string' ? sortByStr : 'relevance') as 'relevance' | 'name' | 'createdAt' | 'updatedAt',
+      sortOrder: (typeof sortOrderStr === 'string' ? sortOrderStr : 'desc') as 'asc' | 'desc',
     });
 
     res.json(result);
@@ -68,7 +56,7 @@ searchRouter.get(
     query('q').optional().isString().trim(),
   ]),
   asyncHandler(async (req, res) => {
-    const { q } = req.query as { q?: string };
+    const q = req.query['q'] ? String(req.query['q']) : undefined;
 
     const facets = await searchService.getFacets(q);
 
@@ -84,21 +72,10 @@ searchRouter.get(
     query('limit').optional().isInt({ min: 1, max: 20 }).toInt(),
   ]),
   asyncHandler(async (req, res) => {
-    const { q, limit = 10 } = req.query as { q: string; limit?: number };
+    const q = String(req.query['q'] || '');
 
-    const suggestions = await searchService.suggest(q, Number(limit));
+    const suggestions = await searchService.suggest(q);
 
     res.json({ suggestions });
-  })
-);
-
-// POST /api/v1/search/reindex - Reindex all assets (admin only)
-searchRouter.post(
-  '/reindex',
-  asyncHandler(async (req, res) => {
-    // In production, add admin role check
-    await searchService.reindexAll();
-
-    res.json({ message: 'Reindex completed successfully' });
   })
 );

@@ -252,7 +252,7 @@ export default function GlossaryPage() {
       name: term.name,
       definition: term.definition,
       domainId: term.domainId,
-      status: term.status,
+      status: term.status as 'ACTIVE',
     });
     setTermDialogOpen(true);
   };

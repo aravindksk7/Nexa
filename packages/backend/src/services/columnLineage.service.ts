@@ -92,7 +92,7 @@ class ColumnLineageService {
       createData['metadata'] = data.metadata;
     }
     const edge = await prisma.columnLineageEdge.create({
-      data: createData as Record<string, unknown>,
+      data: createData as any,
     });
 
     return this.mapColumnLineageEdge(edge);

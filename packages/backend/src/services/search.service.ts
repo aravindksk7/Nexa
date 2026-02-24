@@ -91,7 +91,25 @@ export class SearchService {
       : '';
 
     // Execute search query using Prisma raw query
-    const assets = await prisma.$queryRawUnsafe<any[]>(`
+    interface RawAssetRow {
+      id: string;
+      name: string;
+      description: string | null;
+      asset_type: string;
+      owner_id: string;
+      domain: string | null;
+      tags: string[];
+      custom_properties: unknown;
+      quality_status: string;
+      version: number;
+      created_at: Date;
+      updated_at: Date;
+      created_by_id: string;
+      updated_by_id: string;
+      score: number;
+    }
+
+    const assets = await prisma.$queryRawUnsafe<RawAssetRow[]>(`
       SELECT 
         id, name, description, asset_type, owner_id, domain, tags,
         custom_properties, quality_status, version, created_at, updated_at,
@@ -288,17 +306,34 @@ export class SearchService {
   /**
    * Map raw query result to Asset
    */
-  private mapAsset(row: any): Asset {
+  private mapAsset(row: {
+    id: string;
+    name: string;
+    description: string | null;
+    asset_type: string;
+    owner_id: string;
+    domain: string | null;
+    tags: string[];
+    custom_properties: unknown;
+    quality_status: string;
+    version: number;
+    created_at: Date;
+    updated_at: Date;
+    created_by_id: string;
+    updated_by_id: string;
+  }): Asset {
     return {
       id: row.id,
       name: row.name,
       description: row.description ?? undefined,
-      assetType: row.asset_type,
+      // @ts-ignore - Raw DB query returns string type, mapping to Asset enum
+      assetType: row.asset_type as AssetType,
       ownerId: row.owner_id,
       domain: row.domain ?? undefined,
       tags: row.tags ?? [],
-      customProperties: row.custom_properties ?? undefined,
-      qualityStatus: row.quality_status,
+      customProperties: row.custom_properties as Record<string, unknown> | undefined,
+      // @ts-ignore - Raw DB query returns string type, mapping to QualityStatus enum
+      qualityStatus: row.quality_status as QualityStatus,
       version: row.version,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

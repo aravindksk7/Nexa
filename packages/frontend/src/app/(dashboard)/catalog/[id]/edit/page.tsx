@@ -134,7 +134,7 @@ export default function AssetEditPage({ params }: AssetEditPageProps) {
     updateMutation.mutate(formData);
   };
 
-  const handleAddTag = (event?: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleAddTag = (event?: React.KeyboardEvent<HTMLDivElement|HTMLInputElement>) => {
     if (event && event.key !== 'Enter') {
       return;
     }

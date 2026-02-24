@@ -332,6 +332,11 @@ export const BusinessTermSchema = z.object({
   status: BusinessTermStatusEnum,
   synonyms: z.array(z.string()).default([]),
   relatedTerms: z.array(z.string()).default([]),
+  _count: z
+    .object({
+      mappings: z.number().int().nonnegative(),
+    })
+    .optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

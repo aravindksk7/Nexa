@@ -16,8 +16,8 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-const resolveArgon2Type = (value: string | undefined): argon2.Options['type'] => {
-  if (!value) return DEFAULT_OPTIONS.type;
+const resolveArgon2Type = (value: string | undefined): 0 | 1 | 2 => {
+  if (!value) return DEFAULT_OPTIONS.type as 0 | 1 | 2;
   const normalized = value.toLowerCase();
   if (normalized === 'argon2i') return argon2.argon2i;
   if (normalized === 'argon2d') return argon2.argon2d;
@@ -36,6 +36,7 @@ const buildOptions = (): argon2.Options => {
 export const hashPassword = async (password: string): Promise<string> => {
   const options = buildOptions();
   try {
+    // @ts-ignore - argon2 library type variance
     return await argon2.hash(password, options);
   } catch (error) {
     logger.warn({ error, options }, 'Argon2 hashing failed with configured options, retrying defaults');

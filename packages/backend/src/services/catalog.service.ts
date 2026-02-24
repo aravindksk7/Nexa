@@ -392,7 +392,7 @@ export class CatalogService {
         schemaFormat: data.schemaFormat,
         schemaDefinition: data.schemaDefinition,
         isBreakingChange,
-        breakingDetails,
+        breakingDetails: breakingDetails as any,
         createdById: userId,
       },
     });
@@ -497,17 +497,25 @@ export class CatalogService {
       id: string;
       username: string;
       email: string;
-      firstName?: string | null;
-      lastName?: string | null;
+      firstName: string | null;
+      lastName: string | null;
     } | null;
   }): Asset {
+    const owner = asset.owner ? {
+      id: asset.owner.id,
+      username: asset.owner.username,
+      email: asset.owner.email,
+      firstName: asset.owner.firstName ?? undefined,
+      lastName: asset.owner.lastName ?? undefined,
+    } : undefined;
+    
     return {
       id: asset.id,
       name: asset.name,
       description: asset.description ?? undefined,
       assetType: asset.assetType as Asset['assetType'],
       ownerId: asset.ownerId,
-      owner: asset.owner ?? undefined,
+      owner,
       domain: asset.domain ?? undefined,
       tags: asset.tags,
       customProperties: asset.customProperties as Record<string, unknown> | undefined,

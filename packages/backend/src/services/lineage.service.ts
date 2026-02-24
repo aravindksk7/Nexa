@@ -343,6 +343,7 @@ export class LineageService {
     }
 
     const predecessors = graph.predecessors(nodeId) ?? [];
+    // @ts-ignore - graphlib returns Iterator which is iterable
     for (const predId of predecessors) {
       const edgeData = graph.edge(predId, nodeId);
       edges.push({

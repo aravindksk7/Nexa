@@ -31,13 +31,15 @@ class GlossaryService {
       }
     }
 
-    // Build create data without undefined values
-    const createData: Record<string, unknown> = { name: data.name };
-    if (data.description !== undefined) createData['description'] = data.description;
-    if (data.parentId !== undefined) createData['parentId'] = data.parentId;
+    // Create data object with conditional properties
+    const createData = {
+      name: data.name,
+      ...(data.description !== undefined && { description: data.description }),
+      ...(data.parentId !== undefined && { parentId: data.parentId }),
+    };
 
     const domain = await prisma.businessDomain.create({
-      data: createData as Parameters<typeof prisma.businessDomain.create>[0]['data'],
+      data: createData,
     });
 
     return this.mapDomain(domain);
@@ -85,15 +87,16 @@ class GlossaryService {
       throw new Error('A domain cannot be its own parent');
     }
 
-    // Build update data without undefined values
-    const updateData: Record<string, unknown> = {};
-    if (data.name !== undefined) updateData['name'] = data.name;
-    if (data.description !== undefined) updateData['description'] = data.description;
-    if (data.parentId !== undefined) updateData['parentId'] = data.parentId;
+    // Build update data with conditional properties
+    const updateData = {
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.description !== undefined && { description: data.description }),
+      ...(data.parentId !== undefined && { parentId: data.parentId }),
+    };
 
     const domain = await prisma.businessDomain.update({
       where: { id },
-      data: updateData as Parameters<typeof prisma.businessDomain.update>[0]['data'],
+      data: updateData,
     });
 
     return this.mapDomain(domain);
@@ -227,33 +230,34 @@ class GlossaryService {
 
   async updateTerm(id: string, data: UpdateBusinessTerm): Promise<BusinessTerm> {
     // Build update data without undefined values
-    const updateData: Record<string, unknown> = {};
-    if (data.name !== undefined) updateData['name'] = data.name;
-    if (data.definition !== undefined) updateData['definition'] = data.definition;
-    if (data.domainId !== undefined) updateData['domainId'] = data.domainId;
-    if (data.ownerId !== undefined) updateData['ownerId'] = data.ownerId;
-    if (data.status !== undefined) updateData['status'] = data.status;
-    if (data.synonyms !== undefined) updateData['synonyms'] = data.synonyms;
-    if (data.relatedTerms !== undefined) updateData['relatedTerms'] = data.relatedTerms;
+    const updateData = {
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.definition !== undefined && { definition: data.definition }),
+      ...(data.domainId !== undefined && { domainId: data.domainId }),
+      ...(data.ownerId !== undefined && { ownerId: data.ownerId }),
+      ...(data.status !== undefined && { status: data.status }),
+      ...(data.synonyms !== undefined && { synonyms: data.synonyms }),
+      ...(data.relatedTerms !== undefined && { relatedTerms: data.relatedTerms }),
+    };
 
     const term = await prisma.businessTerm.update({
       where: { id },
-      data: updateData as Parameters<typeof prisma.businessTerm.update>[0]['data'],
+      data: updateData,
     });
 
     return this.mapTerm(term);
   }
 
   async deprecateTerm(id: string, replacementTermId?: string): Promise<BusinessTerm> {
-    // Build update data without undefined values
-    const updateData: Record<string, unknown> = { status: 'DEPRECATED' };
-    if (replacementTermId) {
-      updateData['relatedTerms'] = { push: replacementTermId };
-    }
+    // Build update data with conditional replacement
+    const updateData = {
+      status: 'DEPRECATED' as const,
+      ...(replacementTermId && { relatedTerms: { push: replacementTermId } }),
+    };
 
     const term = await prisma.businessTerm.update({
       where: { id },
-      data: updateData as Parameters<typeof prisma.businessTerm.update>[0]['data'],
+      data: updateData,
     });
 
     // TODO: Create notifications for users who have assets mapped to this term
