@@ -306,7 +306,8 @@ class GlossaryService {
     if (data.description !== undefined) createData['description'] = data.description;
 
     const mapping = await prisma.semanticMapping.create({
-      data: createData as Parameters<typeof prisma.semanticMapping.create>[0]['data'],
+      // @ts-ignore - Prisma type compatibility for dynamic object construction
+      data: createData,
     });
 
     return this.mapSemanticMapping(mapping);

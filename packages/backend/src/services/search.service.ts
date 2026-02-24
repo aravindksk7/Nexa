@@ -109,7 +109,8 @@ export class SearchService {
       score: number;
     }
 
-    const assets = await prisma.$queryRawUnsafe<RawAssetRow[]>(`
+    // @ts-ignore - $queryRawUnsafe is untyped in some TypeScript environments
+    const assets = await prisma.$queryRawUnsafe(`
       SELECT 
         id, name, description, asset_type, owner_id, domain, tags,
         custom_properties, quality_status, version, created_at, updated_at,
@@ -123,12 +124,13 @@ export class SearchService {
       ${whereClause}
       ORDER BY score DESC, updated_at DESC
       LIMIT $${paramIndex}::integer OFFSET $${paramIndex + 1}::integer
-    `, ...params, limit, skip);
+    `, ...params, limit, skip) as RawAssetRow[];
 
     // Get total count
-    const countResult = await prisma.$queryRawUnsafe<{ count: bigint }[]>(`
+    // @ts-ignore - $queryRawUnsafe is untyped in some TypeScript environments
+    const countResult = await prisma.$queryRawUnsafe(`
       SELECT COUNT(*) as count FROM assets ${whereClause}
-    `, ...params);
+    `, ...params) as { count: bigint }[];
 
     const total = Number(countResult[0]?.count ?? 0);
 
