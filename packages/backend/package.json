@@ -1,6 +1,6 @@
 {
   "name": "@nexa/backend",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "Nexa - Backend API",
   "main": "dist/index.js",
   "scripts": {
