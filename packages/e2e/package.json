@@ -1,6 +1,6 @@
 {
   "name": "@nexa/e2e-tests",
-  "version": "3.0.3",
+  "version": "3.0.4",
   "private": true,
   "description": "End-to-end tests for Nexa",
   "scripts": {
