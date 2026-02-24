@@ -38,34 +38,42 @@ This roadmap prioritizes capabilities that can differentiate Nexa against enterp
 - Link metrics to upstream transformations and downstream BI assets
 - Introduce impact simulation before metric definition changes
 
-### 6) AI Governance Copilot
+### 5.5) Rich Relationship Tracking
+- Enable fine-grained relationships between assets, glossary terms, metrics, and stakeholders
+- Support relationship types: depends_on, produces, consumes, owns, certifies, validates
+- Relationship versioning and change tracking (who related what, when, why)
+- Relationship impact analysis (change propagation through relationship graph)
+- Relationship governance (approval workflows for sensitive relationships)
+- Metadata enrichment via relationships (inherit tags, classifications, trust scores)
+
+### 7) AI Governance Copilot
 - Suggest glossary terms, classifications, and owners from lineage/query patterns
 - Auto-draft quality rules and remediation workflows
 - Provide explainable recommendations with human approval gates
 
-### 7) Data Product Operating Model
+### 8) Data Product Operating Model
 - Support data product contracts (inputs/outputs, SLOs, ownership)
 - Add lifecycle states (draft, certified, deprecated, retired)
 - Enable consumer onboarding and deprecation notices
 
-### 8) OpenLineage + dbt + BI Deep Synchronization
+### 9) OpenLineage + dbt + BI Deep Synchronization
 - Expand transformation sync fidelity for SQL and model-level changes
 - Add SQL diff-based blast-radius simulation for planned changes
 - Improve cross-system lineage fidelity for BI dashboards and semantic entities
 
 ## Phase 3 (6–12 Months) — Enterprise Scale
 
-### 9) Marketplace + Governed Data Sharing
+### 10) Marketplace + Governed Data Sharing
 - Build request/access marketplace with entitlement automation
 - Add approved sample data sandbox workflows
 - Enable governed one-click sharing with auditability
 
-### 10) Enterprise Security & Compliance Packs
+### 11) Enterprise Security & Compliance Packs
 - Add advanced RBAC/ABAC policy controls and delegated administration
 - Add SCIM lifecycle automation and identity governance hooks
 - Provide compliance accelerators for GDPR, HIPAA, and SOX evidence workflows
 
-### 11) Multi-Region / Multi-Tenant Controls
+### 12) Multi-Region / Multi-Tenant Controls
 - Add region-aware data residency controls
 - Support tenant-level policy inheritance and override
 - Provide centralized audit export and operational observability
